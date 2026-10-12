@@ -77,7 +77,9 @@ final class FilesWindowController {
             w.titlebarAppearsTransparent = true
             w.minSize = NSSize(width: 1020, height: 660)
             w.isReleasedWhenClosed = false
-            w.collectionBehavior = [.canJoinAllSpaces]
+            // Fullscreen-capable: the green traffic light gets its own Space.
+            // (canJoinAllSpaces alone would demote it to a plain zoom button.)
+            w.collectionBehavior = [.canJoinAllSpaces, .fullScreenPrimary]
             window = w
         }
         guard let window else { return }
