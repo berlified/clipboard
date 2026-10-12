@@ -643,7 +643,29 @@ private func compactBytes(_ b: Double) -> String {
     return "\(Int(b))"
 }
 
-// MARK: - Folder card (dark body, kind-tinted tab, stacked-circle icons)
+// MARK: - Folder card (dark body, gradient folder tab, stacked-circle icons)
+
+/// Real folder-tab silhouette: rounded everywhere except bottom-left,
+/// where it merges into the card body.
+private struct FolderTabShape: Shape {
+    func path(in r: CGRect) -> Path {
+        let tl: CGFloat = 11, tr: CGFloat = 11, br: CGFloat = 11
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.minY + tl))
+        p.addArc(center: CGPoint(x: r.minX + tl, y: r.minY + tl), radius: tl,
+                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        p.addLine(to: CGPoint(x: r.maxX - tr, y: r.minY))
+        p.addArc(center: CGPoint(x: r.maxX - tr, y: r.minY + tr), radius: tr,
+                 startAngle: .degrees(270), endAngle: .degrees(0), clockwise: false)
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - br))
+        p.addArc(center: CGPoint(x: r.maxX - br, y: r.maxY - br), radius: br,
+                 startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+        p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        p.closeSubpath()
+        return p
+    }
+}
 
 private struct FolderCard: View {
     let kind: FileKind
@@ -655,11 +677,22 @@ private struct FolderCard: View {
     var body: some View {
         Button(action: action) {
             ZStack(alignment: .topLeading) {
-                // Tab
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(kindColor(kind).opacity(0.85))
-                    .frame(width: 100, height: 34)
+                // Folder tab: real tab silhouette (merges into the body),
+                // kind gradient with a white folder glyph on it.
+                FolderTabShape()
+                    .fill(kindGradient(kind))
+                    .frame(width: 110, height: 38)
+                    .overlay {
+                        FolderTabShape().stroke(.white.opacity(0.25), lineWidth: 1)
+                    }
+                    .overlay {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.25), radius: 2)
+                    }
                     .offset(x: 14, y: 0)
+                    .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
                 // Body
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(.white.opacity(0.05))
@@ -672,13 +705,13 @@ private struct FolderCard: View {
                     HStack(spacing: 8) {
                         ZStack {
                             Circle().fill(kindColor(kind).opacity(0.2)).frame(width: 30, height: 30)
-                            Image(systemName: kind.symbol)
+                            Image(systemName: kindSymbol(kind))
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(kindColor(kind))
                         }
                         Spacer()
                     }
-                    .padding(.horizontal, 12).padding(.top, 24)
+                    .padding(.horizontal, 12).padding(.top, 34)
                     Text(kind.label)
                         .font(.system(size: 15, weight: .semibold))
                         .padding(.horizontal, 14).padding(.top, 6)
