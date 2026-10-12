@@ -342,9 +342,7 @@ private struct FilesRootView: View {
                     ForEach([FileKind.image, .video, .music, .document, .archive, .app], id: \.self) { kind in
                         FolderCard(kind: kind,
                                    count: indexer.count(for: kind),
-                                   bytes: indexer.bytes(for: kind),
-                                   thumbs: Array(indexer.byKind(kind).prefix(3)),
-                                   icon: { indexer.fileIcon($0) }) {
+                                   bytes: indexer.bytes(for: kind)) {
                             selection = .kind(kind)
                         }
                     }
@@ -641,8 +639,6 @@ private struct FolderCard: View {
     let kind: FileKind
     let count: Int
     let bytes: Int64
-    let thumbs: [IndexedFile]
-    let icon: (IndexedFile) -> NSImage
     var action: () -> Void
 
     var body: some View {
@@ -677,7 +673,7 @@ private struct FolderCard: View {
                         .padding(.horizontal, 14).padding(.top, 6)
                     Divider().background(.white.opacity(0.1)).padding(.horizontal, 14).padding(.top, 8)
                     HStack {
-                        ThumbStackView(files: thumbs, icon: icon, total: count)
+                        ThumbStackView(kind: kind, count: count)
                         Spacer()
                         Text("\(count) items · \(byteString(bytes))")
                             .font(.system(size: 11.5)).foregroundStyle(.secondary)
@@ -692,41 +688,32 @@ private struct FolderCard: View {
 }
 
 private struct ThumbStackView: View {
-    let files: [IndexedFile]
-    let icon: (IndexedFile) -> NSImage
-    let total: Int
+    /// Every circle shares the card's kind gradient — photos included — so
+    /// the stack reads as one family, with +N in the same style.
+    let kind: FileKind
+    let count: Int
 
     var body: some View {
         HStack(spacing: -8) {
-            ForEach(files.prefix(3)) { f in
-                Group {
-                    if f.kind == .image {
-                        Image(nsImage: icon(f))
-                            .resizable().aspectRatio(contentMode: .fill)
-                    } else {
-                        ZStack {
-                            kindGradient(f.kind)
-                            Image(systemName: kindSymbol(f.kind))
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .shadow(color: .black.opacity(0.25), radius: 2)
-                        }
-                    }
+            ForEach(0..<min(3, count), id: \.self) { _ in
+                ZStack {
+                    kindGradient(kind)
+                    Image(systemName: kindSymbol(kind))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.25), radius: 2)
                 }
                 .frame(width: 26, height: 26)
                 .clipShape(Circle())
                 .overlay { Circle().stroke(.white.opacity(0.35), lineWidth: 1.5) }
                 .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
             }
-            if total > 3 {
-                Text("+\(min(total - 3, 99))\(total - 3 > 99 ? "+" : "")")
+            if count > 3 {
+                Text("+\(min(count - 3, 99))\(count - 3 > 99 ? "+" : "")")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 26, height: 26)
-                    .background(
-                        LinearGradient(colors: [Color(red: 0.45, green: 0.45, blue: 0.5), Color(red: 0.25, green: 0.25, blue: 0.3)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing),
-                        in: Circle())
+                    .background(kindGradient(kind), in: Circle())
                     .overlay { Circle().stroke(.white.opacity(0.35), lineWidth: 1.5) }
                     .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
             }
