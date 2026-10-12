@@ -56,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Panel
 
     private func setupPanel() {
-        let rect = NSRect(x: 0, y: 0, width: 680, height: 442)
+        let rect = NSRect(x: 0, y: 0, width: 940, height: 620)
         panel = LauncherPanel(
             contentRect: rect,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -75,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.isMovableByWindowBackground = true
         panel.animationBehavior = .utilityWindow
 
-        let view = ClipboardPanelView(
+        let view = HistoryWindowView(
             clipboard: clipboard,
             onPaste: { [weak self] in self?.hide() },
             onEscape: { [weak self] in self?.hide() }
@@ -121,11 +121,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = NSImage(systemSymbolName: "clipboard.fill", accessibilityDescription: "Aura Clipboard")
         }
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Show Clipboard  (⌃Space)", action: #selector(showFromMenu), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Open Aura  (⌃Space)", action: #selector(showFromMenu), keyEquivalent: ""))
+        pauseItem = NSMenuItem(title: "Pause Aura", action: #selector(togglePause), keyEquivalent: "")
+        pauseItem.target = self
+        menu.addItem(pauseItem)
         menu.addItem(NSMenuItem(title: "Enable select-to-save bubble…", action: #selector(openAccessibility), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Aura", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
+    }
+
+    private var pauseItem = NSMenuItem()
+
+    @objc private func togglePause() {
+        clipboard.paused.toggle()
+        pauseItem.title = clipboard.paused ? "Resume Aura" : "Pause Aura"
     }
 
     @objc private func openAccessibility() { AccessibilityPermission.prompt() }

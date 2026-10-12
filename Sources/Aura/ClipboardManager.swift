@@ -1,33 +1,194 @@
 import AppKit
 import Combine
 
-// MARK: - Clipboard entry
+// MARK: - Kind
 
-enum ClipboardType: String, Codable {
-    case text, link, email
+enum ClipKind: String, Codable {
+    case text, link, email, color, image
 }
+
+// MARK: - Color detection (hex / rgb / hsl, like the ClipBook color rows)
+
+struct DetectedColor {
+    var red: Double; var green: Double; var blue: Double // 0...1
+
+    var hex: String {
+        String(format: "#%02X%02X%02X",
+               Int((red * 255).rounded()), Int((green * 255).rounded()), Int((blue * 255).rounded()))
+    }
+    var rgb: String {
+        "rgb(\(Int((red * 255).rounded())) \(Int((green * 255).rounded())) \(Int((blue * 255).rounded())))"
+    }
+    var hsl: String {
+        let (h, s, l) = toHSL()
+        return String(format: "hsl(%d %d%% %d%%)", Int(h.rounded()), Int((s * 100).rounded()), Int((l * 100).rounded()))
+    }
+
+    private func toHSL() -> (Double, Double, Double) {
+        let mx = max(red, green, blue), mn = min(red, green, blue)
+        var h = 0.0, s = 0.0
+        let l = (mx + mn) / 2
+        if mx != mn {
+            let d = mx - mn
+            s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn)
+            if mx == red { h = (green - blue) / d + (green < blue ? 6 : 0) }
+            else if mx == green { h = (blue - red) / d + 2 }
+            else { h = (red - green) / d + 4 }
+            h *= 60
+        }
+        return (h, s, l)
+    }
+}
+
+/// Returns non-nil when the whole string is a single color value.
+func detectColor(_ raw: String) -> DetectedColor? {
+    let s = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    // #rgb / #rrggbb
+    if s.hasPrefix("#") {
+        let hex = String(s.dropFirst())
+        let chars = Array(hex)
+        func nibble(_ c: Character) -> UInt8? {
+            guard let v = c.hexDigitValue else { return nil }
+            return UInt8(v)
+        }
+        if chars.count == 3, let r = nibble(chars[0]), let g = nibble(chars[1]), let b = nibble(chars[2]) {
+            return DetectedColor(red: Double(r * 17) / 255, green: Double(g * 17) / 255, blue: Double(b * 17) / 255)
+        }
+        if chars.count == 6, let v = UInt32(hex, radix: 16) {
+            return DetectedColor(red: Double((v >> 16) & 0xFF) / 255,
+                                 green: Double((v >> 8) & 0xFF) / 255,
+                                 blue: Double(v & 0xFF) / 255)
+        }
+        return nil
+    }
+    // rgb(...) / rgba(...) — comma, space, or slash-alpha syntax; first 3 numbers win
+    for prefix in ["rgba(", "rgb("] where s.hasPrefix(prefix) && s.hasSuffix(")") {
+        let inner = s.dropFirst(prefix.count).dropLast()
+        let nums = inner.split(whereSeparator: { !$0.isNumber && $0 != "." }).compactMap { Double($0) }
+        guard nums.count >= 3 else { return nil }
+        return DetectedColor(red: nums[0] / 255, green: nums[1] / 255, blue: nums[2] / 255)
+    }
+    // hsl(...) / hsla(...) — h deg, s/l percents
+    for prefix in ["hsla(", "hsl("] where s.hasPrefix(prefix) && s.hasSuffix(")") {
+        let inner = s.dropFirst(prefix.count).dropLast()
+        let nums = inner.split(whereSeparator: { !$0.isNumber && $0 != "." }).compactMap { Double($0) }
+        guard nums.count >= 3 else { return nil }
+        let (r, g, b) = hslToRGB(h: nums[0], s: nums[1] / 100, l: nums[2] / 100)
+        return DetectedColor(red: r, green: g, blue: b)
+    }
+    return nil
+}
+
+private func hslToRGB(h: Double, s: Double, l: Double) -> (Double, Double, Double) {
+    if s == 0 { return (l, l, l) }
+    let hh = ((h.truncatingRemainder(dividingBy: 360)) + 360).truncatingRemainder(dividingBy: 360) / 360
+    let q = l < 0.5 ? l * (1 + s) : l + s - l * s
+    let p = 2 * l - q
+    func ch(_ t: Double) -> Double {
+        var t = t
+        if t < 0 { t += 1 }; if t > 1 { t -= 1 }
+        if t < 1.0 / 6 { return p + (q - p) * 6 * t }
+        if t < 0.5 { return q }
+        if t < 2.0 / 3 { return p + (q - p) * (2.0 / 3 - t) * 6 }
+        return p
+    }
+    return (ch(hh + 1.0 / 3), ch(hh), ch(hh - 1.0 / 3))
+}
+
+func detectKind(_ text: String) -> ClipKind {
+    let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    if detectColor(t) != nil { return .color }
+    if t.hasPrefix("http://") || t.hasPrefix("https://") { return .link }
+    if t.contains("@") && t.contains(".") && !t.contains(" ") && t.count < 120 { return .email }
+    return .text
+}
+
+func djb2(_ data: Data) -> UInt64 {
+    var h: UInt64 = 5381
+    for b in data { h = ((h << 5) &+ h) &+ UInt64(b) }
+    return h
+}
+
+// MARK: - Entry
 
 struct ClipboardEntry: Identifiable, Codable, Hashable {
     var id: UUID
     var text: String
-    var date: Date
-    var pinned: Bool
+    var kind: ClipKind
+    var date: Date        // last copy
+    var firstDate: Date   // first copy
+    var copies: Int
+    var pinned: Bool      // = ★ favorite
+    var sourceApp: String
+    var imageFile: String?
+    var imageWidth: Int?
+    var imageHeight: Int?
+    var imageBytes: Int?
+    var imageHash: UInt64?
 
-    var type: ClipboardType {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t.hasPrefix("http://") || t.hasPrefix("https://") { return .link }
-        if t.contains("@") && t.contains(".") && !t.contains(" ") && t.count < 120 { return .email }
-        return .text
+    enum CodingKeys: String, CodingKey {
+        case id, text, kind, date, firstDate, copies, pinned, sourceApp
+        case imageFile, imageWidth, imageHeight, imageBytes, imageHash
     }
 
-    /// Single-line preview for the row title.
-    var preview: String {
-        let single = text
-            .split(whereSeparator: \.isNewline)
-            .first.map(String.init) ?? text
+    init(id: UUID = UUID(), text: String, kind: ClipKind? = nil, date: Date = Date(),
+         firstDate: Date? = nil, copies: Int = 1, pinned: Bool = false,
+         sourceApp: String = "Unknown", imageFile: String? = nil,
+         imageWidth: Int? = nil, imageHeight: Int? = nil,
+         imageBytes: Int? = nil, imageHash: UInt64? = nil) {
+        self.id = id
+        self.text = text
+        self.kind = kind ?? detectKind(text)
+        self.date = date
+        self.firstDate = firstDate ?? date
+        self.copies = copies
+        self.pinned = pinned
+        self.sourceApp = sourceApp
+        self.imageFile = imageFile
+        self.imageWidth = imageWidth
+        self.imageHeight = imageHeight
+        self.imageBytes = imageBytes
+        self.imageHash = imageHash
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        // Legacy entries (pre-kind) are re-derived from text.
+        if let k = try c.decodeIfPresent(ClipKind.self, forKey: .kind) {
+            kind = k
+        } else {
+            kind = text.isEmpty ? .text : detectKind(text)
+        }
+        date = try c.decodeIfPresent(Date.self, forKey: .date) ?? Date()
+        firstDate = try c.decodeIfPresent(Date.self, forKey: .firstDate) ?? date
+        copies = try c.decodeIfPresent(Int.self, forKey: .copies) ?? 1
+        pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        sourceApp = try c.decodeIfPresent(String.self, forKey: .sourceApp) ?? "Unknown"
+        imageFile = try c.decodeIfPresent(String.self, forKey: .imageFile)
+        imageWidth = try c.decodeIfPresent(Int.self, forKey: .imageWidth)
+        imageHeight = try c.decodeIfPresent(Int.self, forKey: .imageHeight)
+        imageBytes = try c.decodeIfPresent(Int.self, forKey: .imageBytes)
+        imageHash = try c.decodeIfPresent(UInt64.self, forKey: .imageHash)
+    }
+
+    /// Single-line list title.
+    var title: String {
+        if kind == .image {
+            if let w = imageWidth, let h = imageHeight { return "Image (\(w)x\(h))" }
+            return "Image"
+        }
+        let single = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
         let flat = single.trimmingCharacters(in: .whitespaces)
-        if flat.count <= 80 { return flat }
-        return String(flat.prefix(80)) + "…"
+        if flat.isEmpty { return "(empty)" }
+        return flat.count <= 80 ? flat : String(flat.prefix(80)) + "…"
+    }
+
+    var preview: String { title }
+
+    var detectedColor: DetectedColor? {
+        kind == .color ? detectColor(text) : nil
     }
 
     var ageString: String {
@@ -37,18 +198,30 @@ struct ClipboardEntry: Identifiable, Codable, Hashable {
         if secs < 86400 { return "\(secs / 3600)h ago" }
         return "\(secs / 86400)d ago"
     }
+
+    static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .medium
+        return f
+    }()
+
+    var dateString: String { Self.dateFormatter.string(from: date) }
+    var firstDateString: String { Self.dateFormatter.string(from: firstDate) }
 }
 
-// MARK: - Manager: polls NSPasteboard, persists locally, searches
+// MARK: - Manager
 
 @MainActor
 final class ClipboardManager: ObservableObject {
     @Published private(set) var entries: [ClipboardEntry] = []
+    @Published var paused: Bool = false
 
     private var lastChangeCount: Int
     private var timer: Timer?
     private let saveURL: URL
-    private let maxEntries = 50
+    private let imagesDir: URL
+    private let maxEntries = 100
 
     /// Bundle IDs we never record from (password managers etc.)
     private let ignoredBundleIDs: Set<String> = [
@@ -63,80 +236,150 @@ final class ClipboardManager: ObservableObject {
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         saveURL = base.appendingPathComponent("Aura/clipboard.json", isDirectory: false)
+        imagesDir = base.appendingPathComponent("Aura/images", isDirectory: true)
+        try? FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
         // Force first poll to inspect the current clipboard contents.
         lastChangeCount = -1
         load()
-        // Capture whatever is already on the clipboard at launch.
         poll()
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.poll() }
         }
     }
 
-    // Note: timer lives for the app lifetime (manager is owned by LauncherModel,
-    // which lives as long as the panel). No explicit invalidate needed.
+    // Note: timer lives for the app lifetime (owned by AppDelegate). No invalidate needed.
 
-    // MARK: Poll
+    var supportDir: URL { saveURL.deletingLastPathComponent() }
+
+    func imageURL(for entry: ClipboardEntry) -> URL? {
+        guard let f = entry.imageFile else { return nil }
+        return imagesDir.appendingPathComponent(f)
+    }
+
+    func loadImage(_ entry: ClipboardEntry) -> NSImage? {
+        guard let url = imageURL(for: entry) else { return nil }
+        return NSImage(contentsOf: url)
+    }
+
+    /// Icon for the source app, best-effort (avoids deprecated lookup APIs).
+    func appIcon(for name: String) -> NSImage? {
+        guard name != "Unknown" else { return nil }
+        let candidates = [
+            "/Applications/\(name).app",
+            "/System/Applications/\(name).app",
+            "\(NSHomeDirectory())/Applications/\(name).app",
+        ]
+        for path in candidates where FileManager.default.fileExists(atPath: path) {
+            let img = NSWorkspace.shared.icon(forFile: path)
+            img.size = NSSize(width: 32, height: 32)
+            return img
+        }
+        return nil
+    }
+
+    // MARK: Poll (Samsung-style auto-capture)
 
     func poll() {
         let pb = NSPasteboard.general
         guard pb.changeCount != lastChangeCount else { return }
         lastChangeCount = pb.changeCount
+        guard !paused else { return }
 
-        // Skip password-manager copies.
         if let front = NSWorkspace.shared.frontmostApplication,
            let bid = front.bundleIdentifier, ignoredBundleIDs.contains(bid) {
+            return
+        }
+        let appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Unknown"
+
+        // Images win when image data is present (screenshots, copied photos).
+        if let img = pb.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage {
+            captureImage(img, sourceApp: appName)
             return
         }
 
         guard let raw = pb.string(forType: .string) else { return }
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.count < 20_000 else { return }
+        insertOrBump(text: text, kind: nil, sourceApp: appName, pinned: false)
+    }
 
-        // Already the newest? Don't duplicate.
-        if entries.first?.text == text { return }
-
-        // De-dupe: move existing copy to top instead of duplicating.
-        entries.removeAll { $0.text == text }
-        entries.insert(ClipboardEntry(id: UUID(), text: text, date: Date(), pinned: false), at: 0)
+    private func captureImage(_ img: NSImage, sourceApp: String) {
+        guard let tiff = img.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]),
+              png.count < 25_000_000 else { return }
+        let hash = djb2(png)
+        // Same image re-copied → bump copies, don't duplicate.
+        if let i = entries.firstIndex(where: { $0.kind == .image && $0.imageHash == hash }) {
+            entries[i].copies += 1
+            entries[i].date = Date()
+            sortEntries()
+            save()
+            return
+        }
+        let name = "\(UUID().uuidString).png"
+        do {
+            try png.write(to: imagesDir.appendingPathComponent(name), options: .atomic)
+        } catch { return }
+        entries.insert(ClipboardEntry(
+            text: "", kind: .image, sourceApp: sourceApp,
+            imageFile: name, imageWidth: rep.pixelsWide, imageHeight: rep.pixelsHigh,
+            imageBytes: png.count, imageHash: hash
+        ), at: 0)
         trim()
         save()
     }
 
-    // MARK: Explicit saves ("Save to Aura" bubble, Samsung-style pins)
+    // MARK: Explicit saves ("Save to Aura" bubble)
 
-    /// Explicitly saves text (e.g. from the selection bubble).
-    /// Unlike passive Cmd+C capture, explicit saves are pinned so they survive Clear.
+    /// Explicit saves are pinned so they survive Clear.
     func saveText(_ raw: String, pinned: Bool = true) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.count < 20_000 else { return }
-        // De-dupe: refresh existing entry instead of duplicating.
-        if let i = entries.firstIndex(where: { $0.text == text }) {
+        let appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Unknown"
+        insertOrBump(text: text, kind: nil, sourceApp: appName, pinned: pinned)
+    }
+
+    /// Shared insert: de-dupe by text, bump copies + recency, pin on demand.
+    private func insertOrBump(text: String, kind: ClipKind?, sourceApp: String, pinned: Bool) {
+        if let i = entries.firstIndex(where: { $0.kind != .image && $0.text == text }) {
+            entries[i].copies += 1
             entries[i].date = Date()
+            if entries[i].sourceApp == "Unknown" { entries[i].sourceApp = sourceApp }
             if pinned { entries[i].pinned = true }
-            // Pinned float to top.
-            entries.sort { ($0.pinned ? 0 : 1, $0.date) < ($1.pinned ? 0 : 1, $1.date) }
+            sortEntries()
             save()
             return
         }
-        entries.insert(ClipboardEntry(id: UUID(), text: text, date: Date(), pinned: pinned), at: 0)
-        entries.sort { ($0.pinned ? 0 : 1, $0.date) < ($1.pinned ? 0 : 1, $1.date) }
+        entries.insert(ClipboardEntry(text: text, kind: kind, pinned: pinned, sourceApp: sourceApp), at: 0)
+        sortEntries()
         trim()
         save()
+    }
+
+    private func sortEntries() {
+        // Pinned first (newest first), then rest newest first.
+        entries.sort { ($0.pinned ? 0 : 1, $0.date) < ($1.pinned ? 0 : 1, $1.date) }
     }
 
     // MARK: Search
 
-    func search(_ query: String, limit: Int = 8) -> [ClipboardEntry] {
+    func search(_ query: String, limit: Int = 50) -> [ClipboardEntry] {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return Array(entries.prefix(limit)) }
+        // "image" matches image entries (no OCR — title match).
         var scored: [(ClipboardEntry, Int)] = []
         for e in entries {
-            // Score against first 500 chars to keep it fast.
+            if e.kind == .image {
+                if "image".contains(q.lowercased()) {
+                    scored.append((e, 50))
+                }
+                continue
+            }
             let hay = String(e.text.prefix(500))
             if let s = fuzzyScore(query: q, target: hay) {
                 scored.append((e, s))
-            } else if let s = fuzzyScore(query: q, target: e.preview) {
+            } else if let s = fuzzyScore(query: q, target: e.title) {
                 scored.append((e, s))
             }
         }
@@ -146,27 +389,13 @@ final class ClipboardManager: ObservableObject {
 
     // MARK: Actions
 
-    /// Copy back to clipboard and try to auto-paste into the previous app.
-    /// Auto-paste uses CGEvent (needs Accessibility); if not granted it
-    /// silently falls back to copy-only so the user can ⌘V manually.
+    /// Copy back + auto-paste into the previous app (CGEvent ⌘V needs Accessibility;
+    /// falls back to copy-only so the user can ⌘V manually).
     func copyAndPaste(_ entry: ClipboardEntry) {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(entry.text, forType: .string)
-        lastChangeCount = pb.changeCount
-
-        // Recency bump.
-        entries.removeAll { $0.id == entry.id }
-        var bumped = entry
-        bumped.date = Date()
-        entries.insert(bumped, at: 0)
-        trim()
-        save()
-
-        // Give the panel time to hide, then synthesize ⌘V.
+        writeToPasteboard(entry)
+        bump(entry)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
             let source = CGEventSource(stateID: .hidSystemState)
-            // Virtual key 0x09 = "v".
             let down = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
             down?.flags = .maskCommand
             let up = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
@@ -176,21 +405,54 @@ final class ClipboardManager: ObservableObject {
         }
     }
 
+    /// Copy to clipboard without pasting (toolbar Copy button).
+    func copyOnly(_ entry: ClipboardEntry) {
+        writeToPasteboard(entry)
+        bump(entry)
+    }
+
+    private func writeToPasteboard(_ entry: ClipboardEntry) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        if entry.kind == .image, let url = imageURL(for: entry),
+           let img = NSImage(contentsOf: url) {
+            pb.writeObjects([img])
+        } else {
+            pb.setString(entry.text, forType: .string)
+        }
+        lastChangeCount = pb.changeCount
+    }
+
+    private func bump(_ entry: ClipboardEntry) {
+        guard let i = entries.firstIndex(where: { $0.id == entry.id }) else { return }
+        entries[i].copies += 1
+        entries[i].date = Date()
+        sortEntries()
+        save()
+    }
+
     func togglePin(_ entry: ClipboardEntry) {
         guard let i = entries.firstIndex(where: { $0.id == entry.id }) else { return }
         entries[i].pinned.toggle()
-        // Pinned items float to top.
-        entries.sort { ($0.pinned ? 0 : 1, $0.date) < ($1.pinned ? 0 : 1, $1.date) }
-        // Re-sort: pinned first (newest first), then rest newest first.
+        sortEntries()
         save()
     }
 
     func delete(_ entry: ClipboardEntry) {
+        if let e = entries.first(where: { $0.id == entry.id }),
+           let f = e.imageFile {
+            try? FileManager.default.removeItem(at: imagesDir.appendingPathComponent(f))
+        }
         entries.removeAll { $0.id == entry.id }
         save()
     }
 
-    func clearAll() {
+    func clearUnpinned() {
+        for e in entries where !e.pinned {
+            if let f = e.imageFile {
+                try? FileManager.default.removeItem(at: imagesDir.appendingPathComponent(f))
+            }
+        }
         entries.removeAll { !$0.pinned }
         save()
     }
@@ -198,10 +460,16 @@ final class ClipboardManager: ObservableObject {
     // MARK: Persistence (local JSON, private by design)
 
     private func trim() {
-        // Keep pinned + newest, cap at maxEntries.
         if entries.count > maxEntries {
             let pinned = entries.filter(\.pinned)
             let rest = entries.filter { !$0.pinned }.prefix(max(0, maxEntries - pinned.count))
+            // Drop image files for evicted entries.
+            let keep = Set((pinned + rest).map(\.id))
+            for e in entries where !keep.contains(e.id) {
+                if let f = e.imageFile {
+                    try? FileManager.default.removeItem(at: imagesDir.appendingPathComponent(f))
+                }
+            }
             entries = pinned + rest
         }
     }
@@ -220,6 +488,7 @@ final class ClipboardManager: ObservableObject {
         do {
             let data = try Data(contentsOf: saveURL)
             entries = try JSONDecoder().decode([ClipboardEntry].self, from: data)
+            sortEntries()
         } catch {
             entries = []
         }
