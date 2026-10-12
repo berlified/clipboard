@@ -4,7 +4,7 @@ import Combine
 // MARK: - Kind
 
 enum ClipKind: String, Codable {
-    case text, link, email, color, image
+    case text, link, email, color, image, code
 }
 
 // MARK: - Color detection (hex / rgb / hsl, like the ClipBook color rows)
@@ -100,7 +100,30 @@ func detectKind(_ text: String) -> ClipKind {
     if detectColor(t) != nil { return .color }
     if t.hasPrefix("http://") || t.hasPrefix("https://") { return .link }
     if t.contains("@") && t.contains(".") && !t.contains(" ") && t.count < 120 { return .email }
+    if detectCode(t) { return .code }
     return .text
+}
+
+/// Conservative code heuristic: needs ≥4 signal points so prose with
+/// parens or apostrophes never misfires.
+func detectCode(_ raw: String) -> Bool {
+    guard raw.count >= 12, raw.count < 20_000 else { return false }
+    var score = 0
+    if raw.contains("{") && raw.contains("}") { score += 2 }
+    if raw.contains(";") { score += 1 }
+    let lower = raw.lowercased()
+    let keywords = ["func ", "def ", "class ", "import ", "const ", "let ", "var ",
+                    "=>", "->", "#include", "return ", "public ", "private ",
+                    "fn ", "package ", "echo ", "select ", "struct ", "enum "]
+    if keywords.contains(where: lower.contains) { score += 2 }
+    if raw.range(of: "[A-Za-z_][A-Za-z0-9_]*\\([^)]*\\)", options: .regularExpression) != nil {
+        score += 2
+    }
+    let lines = raw.components(separatedBy: .newlines)
+    if lines.count >= 2 && lines.contains(where: { $0.hasPrefix(" ") || $0.hasPrefix("\t") }) {
+        score += 1
+    }
+    return score >= 4
 }
 
 func djb2(_ data: Data) -> UInt64 {
@@ -179,8 +202,8 @@ struct ClipboardEntry: Identifiable, Codable, Hashable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
-        // Legacy entries (pre-kind) are re-derived from text.
-        if let k = try c.decodeIfPresent(ClipKind.self, forKey: .kind) {
+        // Legacy entries: re-derive text kinds (adds code detection to old clips).
+        if let k = try c.decodeIfPresent(ClipKind.self, forKey: .kind), k != .text {
             kind = k
         } else {
             kind = text.isEmpty ? .text : detectKind(text)
@@ -250,6 +273,11 @@ final class ClipboardManager: ObservableObject {
     private let imagesDir: URL
     private let maxEntries = 100
 
+    /// Disk-decode caches: rows render from these, never the filesystem.
+    private let fullImageCache = NSCache<NSString, NSImage>()
+    private let thumbCache = NSCache<NSString, NSImage>()
+    private let appIconCache = NSCache<NSString, NSImage>()
+
     /// Bundle IDs we never record from (password managers etc.)
     private let ignoredBundleIDs: Set<String> = [
         "com.1password.1password",
@@ -285,13 +313,60 @@ final class ClipboardManager: ObservableObject {
     }
 
     func loadImage(_ entry: ClipboardEntry) -> NSImage? {
-        guard let url = imageURL(for: entry) else { return nil }
-        return NSImage(contentsOf: url)
+        cachedFullImage(entry)
+    }
+
+    /// Full image, decoded once then cached.
+    func cachedFullImage(_ entry: ClipboardEntry) -> NSImage? {
+        guard let f = entry.imageFile else { return nil }
+        let key = f as NSString
+        if let hit = fullImageCache.object(forKey: key) { return hit }
+        guard let img = NSImage(contentsOf: imagesDir.appendingPathComponent(f)) else { return nil }
+        fullImageCache.setObject(img, forKey: key)
+        return img
+    }
+
+    /// Small thumbnail for rails/rows/cards. Decoded + downscaled once.
+    func thumbnail(_ entry: ClipboardEntry, pointSize: CGFloat = 96) -> NSImage? {
+        guard entry.kind == .image, let f = entry.imageFile else { return nil }
+        let key = "\(f)@\(Int(pointSize))" as NSString
+        if let hit = thumbCache.object(forKey: key) { return hit }
+        guard let full = cachedFullImage(entry) else { return nil }
+        let aspect = full.size.width / max(full.size.height, 1)
+        let w = aspect >= 1 ? pointSize : pointSize * aspect
+        let h = aspect >= 1 ? pointSize / aspect : pointSize
+        let thumb = NSImage(size: NSSize(width: w, height: h))
+        thumb.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .medium
+        full.draw(in: NSRect(x: 0, y: 0, width: w, height: h),
+                  from: NSRect(origin: .zero, size: full.size),
+                  operation: .copy, fraction: 1.0)
+        thumb.unlockFocus()
+        thumbCache.setObject(thumb, forKey: key)
+        return thumb
     }
 
     /// Icon for the source app, best-effort (avoids deprecated lookup APIs).
+    /// Cached: the rail renders up to 7 of these per frame.
     func appIcon(for name: String) -> NSImage? {
+        cachedAppIcon(for: name)
+    }
+
+    func cachedAppIcon(for name: String) -> NSImage? {
         guard name != "Unknown" else { return nil }
+        let key = name as NSString
+        if let hit = appIconCache.object(forKey: key) { return hit }
+        // 1. Running apps: exact localizedName → real bundle icon.
+        //    This catches everything in /Applications, ~/Applications,
+        //    Homebrew casks, and oddly-named bundles path guessing misses.
+        if let running = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == name }),
+           let url = running.bundleURL {
+            let img = NSWorkspace.shared.icon(forFile: url.path)
+            img.size = NSSize(width: 96, height: 96)
+            appIconCache.setObject(img, forKey: key)
+            return img
+        }
+        // 2. Well-known path guesses.
         let candidates = [
             "/Applications/\(name).app",
             "/System/Applications/\(name).app",
@@ -299,7 +374,8 @@ final class ClipboardManager: ObservableObject {
         ]
         for path in candidates where FileManager.default.fileExists(atPath: path) {
             let img = NSWorkspace.shared.icon(forFile: path)
-            img.size = NSSize(width: 32, height: 32)
+            img.size = NSSize(width: 96, height: 96)
+            appIconCache.setObject(img, forKey: key)
             return img
         }
         return nil
@@ -442,8 +518,7 @@ final class ClipboardManager: ObservableObject {
     private func writeToPasteboard(_ entry: ClipboardEntry) {
         let pb = NSPasteboard.general
         pb.clearContents()
-        if entry.kind == .image, let url = imageURL(for: entry),
-           let img = NSImage(contentsOf: url) {
+        if entry.kind == .image, let img = cachedFullImage(entry) {
             pb.writeObjects([img])
         } else {
             pb.setString(entry.text, forType: .string)
@@ -467,22 +542,22 @@ final class ClipboardManager: ObservableObject {
     }
 
     func delete(_ entry: ClipboardEntry) {
-        if let e = entries.first(where: { $0.id == entry.id }),
-           let f = e.imageFile {
-            try? FileManager.default.removeItem(at: imagesDir.appendingPathComponent(f))
-        }
+        evictImage(entry)
         entries.removeAll { $0.id == entry.id }
         save()
     }
 
     func clearUnpinned() {
-        for e in entries where !e.pinned {
-            if let f = e.imageFile {
-                try? FileManager.default.removeItem(at: imagesDir.appendingPathComponent(f))
-            }
-        }
+        for e in entries where !e.pinned { evictImage(e) }
         entries.removeAll { !$0.pinned }
         save()
+    }
+
+    private func evictImage(_ entry: ClipboardEntry) {
+        if let f = entry.imageFile {
+            try? FileManager.default.removeItem(at: imagesDir.appendingPathComponent(f))
+            fullImageCache.removeObject(forKey: f as NSString)
+        }
     }
 
     // MARK: Pinboards
@@ -531,11 +606,7 @@ final class ClipboardManager: ObservableObject {
             let rest = entries.filter { !$0.pinned }.prefix(max(0, maxEntries - pinned.count))
             // Drop image files for evicted entries.
             let keep = Set((pinned + rest).map(\.id))
-            for e in entries where !keep.contains(e.id) {
-                if let f = e.imageFile {
-                    try? FileManager.default.removeItem(at: imagesDir.appendingPathComponent(f))
-                }
-            }
+            for e in entries where !keep.contains(e.id) { evictImage(e) }
             entries = pinned + rest
         }
     }
