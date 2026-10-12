@@ -1,83 +1,77 @@
-# Aura — the Samsung-style clipboard manager for Mac
+# Aura — Samsung-style clipboard manager for Mac
 
 Aura is **only** a clipboard manager. No launcher, no fluff.
 
-- **Normal `⌘C` just works** — every copy is auto-saved into history, like the Samsung keyboard clipboard.
-- **Select any sentence anywhere** → a small **✨ Save to Aura** pill pops up next to your cursor → one click pins it into Aura forever.
-- **`⌃Space`** opens the history → search → `⏎` pastes it back.
+- **Normal `⌘C` just works** — every copy (text, links, emails, **images**, colors) is auto-saved into history, like the Samsung keyboard clipboard.
+- **Select any sentence anywhere** → a small **✨ Save to Aura** pill pops up next to your cursor → one click pins it forever.
+- **`⌃Space`** opens the dark two-pane history window → search → `⏎` pastes it back into whatever app you were in.
 
 ![stack](https://img.shields.io/badge/Swift-6.2-orange) ![platform](https://img.shields.io/badge/macOS-14%2B-blue)
 
-## The two features (that's it)
+## The window
 
-### 1. Auto-capture (`⌘C` → Aura, Samsung-style)
+Dark, two-pane, ClipBook-style:
 
-Copy anything in any app with `⌘C`. Aura watches `NSPasteboard` and appends it to history (text, links, emails — newest on top, de-duped, capped at 50, persisted to `~/Library/Application Support/Aura/clipboard.json`). Password managers (1Password, Bitwarden, Keychain…) are never recorded. Works with **zero permissions**.
+- **Toolbar** — search field, Paste-to-app, Copy, Pause/Resume, ★ favorites-only filter.
+- **Left: history list** — type icons per row (doc / link / envelope / color dot / image thumbnail), single-line titles (`Image (1456x1074)` for images), ★ to favorite. Hover a row to reveal its star.
+- **Right: preview + metadata**
+  - Text → full selectable text; links get an Open button.
+  - Images → large preview + dimensions + file size.
+  - Colors (`#65a30d`, `rgb(255 100 3)`, `hsl(330 100% 50%)`) → swatch + HEX / RGB / HSL rows, each with its own copy button.
+  - Metadata block: source app (with icon), type, number of copies, first/last copy time.
+- **Status bar** — `↑↓` navigate, `⏎ Paste to <live frontmost app>`, `⌘K` hint, last copy time, Clear (keeps ★ favorites).
 
-### 2. Select-to-save bubble (the screenshot moment)
+Everything stays local in `~/Library/Application Support/Aura/` (`clipboard.json` + `images/`). Password managers (1Password, Bitwarden, Keychain…) are never recorded.
 
-Select a sentence in any app — like the highlighted text in your screenshot — and a dark **✨ Save to Aura** pill appears right under the cursor. Click it → the text is **pinned** in Aura (pins survive Clear). It fades to `Saved ✓` and disappears.
+## Select-to-save bubble
 
-This needs **Accessibility permission** (macOS only lets apps read other apps' selected text with it):
-1. Launch Aura — it prompts once on first run.
-2. Or: menu bar 📋 → `Enable select-to-save bubble…`, or `System Settings → Privacy & Security → Accessibility → Aura ON`.
-3. Without it, auto-capture + history still work; only the bubble sleeps (the panel shows a slim grant banner until then).
+Select text in any app → the **✨ Save to Aura** pill appears under the cursor → click → `Saved ✓` → the text is **pinned** in history. Needs **Accessibility permission** (macOS only shares other apps' selected text with it):
 
-## `⌃Space` history panel
+1. Launch Aura — it asks once on first run, or use menu bar 📋 → `Enable select-to-save bubble…`.
+2. Without it, auto-capture + history still work; only the bubble sleeps.
 
-Single global hotkey: **`⌃Space`** (Carbon hotkey, no permission needed for the hotkey itself).
+## Hotkey
 
-- Empty → newest clips. Type to fuzzy-search. `↑↓` navigate, `⏎`/click pastes (copies back + synthesizes `⌘V`; the paste part wants Accessibility, otherwise it copies and you `⌘V` yourself).
-- 📌 pin (pinned float to top, survive Clear), 🗑 delete per row, `Clear unpinned` in the footer.
-- `esc` or click-outside hides.
+Single global hotkey: **`⌃Space`** (Carbon, no permission needed for the hotkey itself). `esc` or click-outside hides.
 
-⚠️ **macOS steals `⌃Space` by default** (`Input Sources → Select the previous input source`). If the hotkey does nothing: `System Settings → Keyboard → Shortcuts → Input Sources` → uncheck it → relaunch Aura.
+⚠️ **macOS steals `⌃Space` by default** (`Input Sources → Select the previous input source`). If nothing happens: `System Settings → Keyboard → Shortcuts → Input Sources` → uncheck it → relaunch Aura.
+
+`⏎`-to-paste synthesizes `⌘V` (wants Accessibility; otherwise it copies and you paste manually).
 
 ## Run it
 
 Only Command Line Tools needed (no full Xcode).
 
 ```bash
-cd /Users/berlin/Desktop/pay/launcher
+git clone https://github.com/berlified/clipboard.git
+cd clipboard
 
-# dev run (panel appears, terminal blocks — Ctrl+C to stop)
+# dev run (window appears, terminal blocks — Ctrl+C to stop)
 swift run
 
-# or background
-swift build
-./.build/debug/Aura &
-
-# release
+# or background / release
 swift build -c release
 ./.build/release/Aura &
 ```
 
-Menu bar 📋 → `Quit Aura` to stop.
+Menu bar 📋 → `Pause Aura` / `Quit Aura`.
 
-## How it's built
+## Code map
 
 ```
-launcher/
-  Package.swift               # swift-tools 6.0, macOS 14+, executable "Aura"
-  Sources/Aura/
-    AuraApp.swift             # accessory app, single ClipboardManager, ⌃Space, menu bar, bubble wiring
-    ClipboardManager.swift    # NSPasteboard polling, saveText(pinned:), search, copyAndPaste, local JSON store
-    SelectionMonitor.swift    # AX selected-text polling (kAXSelectedTextAttribute), stable-selection detection
-    SaveBubble.swift          # non-activating floating pill (Save to Aura → Saved ✓)
-    ClipboardPanelView.swift  # the ⌃Space history UI (search, pin, delete, paste)
-    Model.swift / LauncherView.swift  # legacy launcher code, unused since the clipboard-only pivot
+Package.swift               # swift-tools 6.0, macOS 14+, executable "Aura"
+Sources/Aura/
+  AuraApp.swift             # accessory app, shared ClipboardManager, ⌃Space, menu bar, bubble wiring
+  ClipboardManager.swift    # pasteboard polling, image/color capture, search, paste, local JSON store
+  HistoryWindowView.swift   # the two-pane window (toolbar, list, preview+metadata, status bar)
+  SelectionMonitor.swift    # AX selected-text polling (stable-selection detection, no key logging)
+  SaveBubble.swift          # non-activating floating pill (Save to Aura → Saved ✓)
+  Model.swift               # shared fuzzy matcher
 ```
-
-Key tricks:
-
-- One shared `ClipboardManager` owned by `AppDelegate` — panel + bubble use the same instance (never two timers/writers).
-- Bubble is a `.nonactivatingPanel` at `.statusBar` level — it never steals focus from the app you're selecting in.
-- Selection detection is poll-only (`0.4s`, stable-twice fires once); no event taps, no key logging — we only read the selected-text attribute and skip our own process.
-- `NSApp.setActivationPolicy(.accessory)` — no Dock icon, menu-bar only.
 
 ## Troubleshooting
 
-- Bubble never appears → Accessibility off (see above). Grant → select text again.
+- Bubble never appears → Accessibility off (see above).
 - `⌃Space` does nothing → Input Sources conflict (see above).
-- `⏎` copies but doesn't paste → Accessibility off; paste manually with `⌘V`.
-- History empty after copy → some apps (password fields, 1Password) are intentionally skipped.
+- Copies but doesn't paste → Accessibility off; `⌘V` manually.
+- History empty after copy → password fields and password managers are intentionally skipped.
