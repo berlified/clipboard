@@ -142,10 +142,10 @@ struct Board: Identifiable, Codable, Hashable {
     /// Palette index into `Board.palette`.
     var colorIndex: Int
 
-    /// macOS-tinted dot colors, Paste-style.
+    /// Monochrome dot ramp (dark-mode-first product: no hue anywhere).
     static let palette: [String] = [
-        "#FF3B30", "#FF9500", "#FFCC00", "#34C759",
-        "#00C7BE", "#0A84FF", "#BF5AF2", "#FF375F",
+        "#FFFFFF", "#D9D9D9", "#B3B3B3", "#8C8C8C",
+        "#666666", "#404040", "#262626", "#111111",
     ]
 
     var hex: String { Self.palette[colorIndex % Self.palette.count] }

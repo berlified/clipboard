@@ -19,15 +19,15 @@ private struct SaveBubbleView: View {
             HStack(spacing: 7) {
                 Image(systemName: saved ? "checkmark" : "sparkles")
                     .font(.system(size: 12, weight: .bold))
-                Text(saved ? "Saved to Aura" : "Save to Aura")
+                Text(saved ? "Saved to LiveDocs" : "Save to LiveDocs")
                     .font(.system(size: 13, weight: .semibold))
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(saved ? .black : .white)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .background(
                 Capsule()
-                    .fill(saved ? Color.green.opacity(0.9) : Color.black.opacity(0.88))
+                    .fill(saved ? Color.white : Color.black.opacity(0.88))
             )
             .overlay {
                 Capsule().stroke(.white.opacity(0.22), lineWidth: 1)

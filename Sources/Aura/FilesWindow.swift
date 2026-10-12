@@ -72,7 +72,7 @@ final class FilesWindowController {
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered, defer: false
             )
-            w.title = "Aura Files"
+            w.title = "LiveDocs"
             w.titleVisibility = .hidden
             w.titlebarAppearsTransparent = true
             w.minSize = NSSize(width: 1020, height: 660)
@@ -141,11 +141,14 @@ private struct FilesRootView: View {
                 HStack(spacing: 8) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(LinearGradient(colors: [.blue, .mint], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .fill(.black)
                             .frame(width: 28, height: 28)
-                        Image(systemName: "sparkles").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                        Image(systemName: "touchid").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                     }
-                    Text("Aura Files").font(.system(size: 15, weight: .semibold))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.25), lineWidth: 0.5)
+                    }
+                    Text("LiveDocs").font(.system(size: 15, weight: .semibold))
                 }
                 .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
 
@@ -199,7 +202,7 @@ private struct FilesRootView: View {
                         .fill(.white.opacity(0.12))
                         .frame(height: 6)
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(LinearGradient(colors: [.green, .mint], startPoint: .leading, endPoint: .trailing))
+                        .fill(LinearGradient(colors: [.white, Color(white: 0.45)], startPoint: .leading, endPoint: .trailing))
                         .frame(width: max(4, geo.size.width * frac), height: 6)
                 }
             }
@@ -240,16 +243,16 @@ private struct FilesRootView: View {
             HStack(spacing: 9) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(folder ? .blue : .secondary)
+                    .foregroundStyle(folder ? .white : .secondary)
                     .frame(width: 18)
                 Text(title).font(.system(size: 13, weight: active ? .semibold : .regular))
                 Spacer()
                 if let badge {
-                    Text(badge).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                    Text(badge).font(.system(size: 11, weight: .bold)).foregroundStyle(.black)
                         .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(.red, in: Capsule())
+                        .background(.white, in: Capsule())
                 } else if let green {
-                    Text(green).font(.system(size: 11, weight: .medium)).foregroundStyle(.green)
+                    Text(green).font(.system(size: 11, weight: .medium)).foregroundStyle(.white)
                 } else if let count {
                     Text(count).font(.system(size: 11)).foregroundStyle(.tertiary)
                 }
@@ -355,31 +358,31 @@ private struct FilesRootView: View {
                 HStack {
                     Text("Clean Up").font(.system(size: 17, weight: .bold))
                     Text("Free up to \(byteString(cleanupBytes))").font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 3)
-                        .background(Color(red: 0.2, green: 0.65, blue: 0.35), in: Capsule())
+                        .foregroundStyle(.black).padding(.horizontal, 9).padding(.vertical, 3)
+                        .background(.white, in: Capsule())
                 }
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
                     let dups = indexer.duplicates()
                     let dupBytes = dups.reduce(0) { $0 + $1.extraBytes }
                     let dupCount = dups.reduce(0) { $0 + $1.files.count - 1 }
-                    CleanupCard(tint: Color(red: 0.98, green: 0.87, blue: 0.89), icon: "doc.on.doc.fill", iconTint: .red,
+                    CleanupCard(icon: "doc.on.doc.fill", iconTint: .white,
                                 label: "Duplicates", big: byteString(dupBytes), detail: "\(dupCount) extra copies") {
                         selection = .duplicates
                     }
                     let forg = indexer.forgottenDownloads()
-                    CleanupCard(tint: Color(red: 0.86, green: 0.91, blue: 0.99), icon: "arrow.down.circle.fill", iconTint: .blue,
+                    CleanupCard(icon: "arrow.down.circle.fill", iconTint: .white,
                                 label: "Forgotten Downloads", big: byteString(forg.reduce(0) { $0 + $1.size }),
                                 detail: "\(forg.count) items") {
                         selection = .forgotten
                     }
                     let old = indexer.oldScreenshots()
-                    CleanupCard(tint: Color(red: 0.98, green: 0.9, blue: 0.92), icon: "camera.fill", iconTint: .pink,
+                    CleanupCard(icon: "camera.fill", iconTint: .white,
                                 label: "Old Screenshots", big: byteString(old.reduce(0) { $0 + $1.size }),
                                 detail: "\(old.count) items") {
                         selection = .oldScreenshots
                     }
                     let un = indexer.unusedApps()
-                    CleanupCard(tint: Color(red: 0.87, green: 0.95, blue: 0.89), icon: "app.badge.fill", iconTint: .green,
+                    CleanupCard(icon: "app.badge.fill", iconTint: .white,
                                 label: "Unused Apps", big: byteString(un.reduce(0) { $0 + $1.size }),
                                 detail: "\(un.count) items") {
                         selection = .unusedApps
@@ -589,28 +592,34 @@ private enum ListSort { case date, name, size }
 
 // MARK: - Kind accents (charts, tabs, badges, placeholder tiles)
 
+// Monochrome kind ramp: distinct grays keep charts/legends readable
+// with zero hue. Dark mode only.
 private func kindColor(_ kind: FileKind) -> Color {
     switch kind {
-    case .document: return Color(red: 0.2, green: 0.55, blue: 1.0)
-    case .image: return Color(red: 0.7, green: 0.4, blue: 0.95)
-    case .video: return Color(red: 0.25, green: 0.75, blue: 1.0)
-    case .music: return Color(red: 0.2, green: 0.8, blue: 0.45)
-    case .archive: return Color(red: 1.0, green: 0.65, blue: 0.2)
-    case .app: return Color(red: 1.0, green: 0.35, blue: 0.45)
-    case .other: return .gray
+    case .document: return .white
+    case .app: return Color(white: 0.88)
+    case .image: return Color(white: 0.74)
+    case .video: return Color(white: 0.6)
+    case .music: return Color(white: 0.46)
+    case .archive: return Color(white: 0.34)
+    case .other: return Color(white: 0.24)
     }
 }
 
-/// Gradient placeholder tiles: rich color instead of blank white doc blobs.
+/// Gradient placeholder tiles, monochrome: stepped grays per kind.
 private func kindGradient(_ kind: FileKind) -> LinearGradient {
+    func g(_ top: Double, _ bottom: Double) -> LinearGradient {
+        LinearGradient(colors: [Color(white: top), Color(white: bottom)],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
     switch kind {
-    case .document: return LinearGradient(colors: [Color(red: 0.25, green: 0.6, blue: 1.0), Color(red: 0.35, green: 0.35, blue: 0.9)], startPoint: .topLeading, endPoint: .bottomTrailing)
-    case .image: return LinearGradient(colors: [Color(red: 0.75, green: 0.45, blue: 1.0), Color(red: 0.5, green: 0.3, blue: 0.9)], startPoint: .topLeading, endPoint: .bottomTrailing)
-    case .video: return LinearGradient(colors: [Color(red: 0.3, green: 0.8, blue: 1.0), Color(red: 0.1, green: 0.5, blue: 0.95)], startPoint: .topLeading, endPoint: .bottomTrailing)
-    case .music: return LinearGradient(colors: [Color(red: 0.25, green: 0.85, blue: 0.5), Color(red: 0.0, green: 0.6, blue: 0.45)], startPoint: .topLeading, endPoint: .bottomTrailing)
-    case .archive: return LinearGradient(colors: [Color(red: 1.0, green: 0.7, blue: 0.3), Color(red: 0.95, green: 0.5, blue: 0.15)], startPoint: .topLeading, endPoint: .bottomTrailing)
-    case .app: return LinearGradient(colors: [Color(red: 1.0, green: 0.45, blue: 0.5), Color(red: 0.9, green: 0.2, blue: 0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
-    case .other: return LinearGradient(colors: [Color(red: 0.55, green: 0.55, blue: 0.6), Color(red: 0.35, green: 0.35, blue: 0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    case .document: return g(0.95, 0.7)
+    case .image: return g(0.8, 0.55)
+    case .video: return g(0.66, 0.42)
+    case .music: return g(0.52, 0.3)
+    case .archive: return g(0.4, 0.22)
+    case .app: return g(0.92, 0.66)
+    case .other: return g(0.32, 0.18)
     }
 }
 
@@ -700,8 +709,8 @@ private struct ThumbStackView: View {
                     kindGradient(kind)
                     Image(systemName: kindSymbol(kind))
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.25), radius: 2)
+                        .foregroundStyle(kind == .document || kind == .app || kind == .image ? .black : .white)
+                        .shadow(color: .black.opacity(0.2), radius: 2)
                 }
                 .frame(width: 26, height: 26)
                 .clipShape(Circle())
@@ -724,7 +733,6 @@ private struct ThumbStackView: View {
 // MARK: - Cleanup + source cards
 
 private struct CleanupCard: View {
-    let tint: Color
     let icon: String
     let iconTint: Color
     let label: String
@@ -768,9 +776,12 @@ private struct SourceCard: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 ZStack {
-                    Circle().fill(Color(hue: hue, saturation: 0.45, brightness: 0.92)).frame(width: 38, height: 38)
+                    Circle()
+                        .fill(LinearGradient(colors: [.white.opacity(0.85), .white.opacity(0.45)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: 38, height: 38)
                     Text(String(source.host.prefix(1)).uppercased())
-                        .font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                        .font(.system(size: 16, weight: .bold)).foregroundStyle(.black)
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(source.host).font(.system(size: 13, weight: .semibold)).lineLimit(1)
@@ -786,10 +797,6 @@ private struct SourceCard: View {
             }
         }
         .buttonStyle(.plain)
-    }
-
-    private var hue: Double {
-        Double(abs(source.host.hashValue) % 100) / 100.0
     }
 }
 
@@ -828,11 +835,11 @@ private struct FileRow: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(selected ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.25) : .clear,
+        .background(selected ? .white.opacity(0.1) : .clear,
                     in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             if selected {
-                RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .controlAccentColor).opacity(0.5), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.3), lineWidth: 1)
             }
         }
     }
@@ -868,9 +875,9 @@ private struct StatCard: View {
                     Text("\(trend >= 0 ? "+" : "")\(Int(trend.rounded()))%")
                         .font(.system(size: 11, weight: .bold))
                 }
-                .foregroundStyle(trend >= 0 ? .green : .red)
+                .foregroundStyle(trend >= 0 ? .black : .white)
                 .padding(.horizontal, 7).padding(.vertical, 3)
-                .background((trend >= 0 ? Color.green : Color.red).opacity(0.14), in: Capsule())
+                .background(trend >= 0 ? .white : .white.opacity(0.14), in: Capsule())
             }
             HStack(spacing: 5) {
                 Image(systemName: "calendar").font(.system(size: 10)).foregroundStyle(.tertiary)
@@ -904,19 +911,23 @@ private struct StorageBarCard: View {
     var body: some View {
         let v = indexer.volumeInfo()
         let used = indexer.volumeUsed()
+        let indexed = indexer.totalBytes
         let docs = indexer.bytes(for: .document)
         let media = indexer.bytes(for: .image) + indexer.bytes(for: .video) + indexer.bytes(for: .music)
         let apps = indexer.bytes(for: .app)
-        let indexedRest = max(0, indexer.totalBytes - docs - media - apps)
+        let indexedRest = max(0, indexed - docs - media - apps)
         // The truthful remainder: mail, messages, Library app data, dev
         // dependencies, macOS itself — counted by the volume, not our index.
-        let restOfDisk = max(0, used - indexer.totalBytes)
-        let segs = [Seg(label: "Documents", bytes: docs, color: .blue),
-                    Seg(label: "Media", bytes: media, color: .yellow),
-                    Seg(label: "Apps", bytes: apps, color: .red),
-                    Seg(label: "Other files", bytes: indexedRest, color: .gray),
-                    Seg(label: "Rest of disk", bytes: restOfDisk, color: Color(red: 0.45, green: 0.45, blue: 0.5))]
-        let total = max(v.total, 1)
+        let restOfDisk = max(0, used - indexed)
+        // Row 1: indexed breakdown, scaled to the INDEXED total so every
+        // category stays visible and proportionally honest.
+        let cats = [Seg(label: "Documents", bytes: docs, color: .white),
+                    Seg(label: "Media", bytes: media, color: Color(white: 0.66)),
+                    Seg(label: "Apps", bytes: apps, color: Color(white: 0.42)),
+                    Seg(label: "Other files", bytes: indexedRest, color: Color(white: 0.24))]
+        let catTotal = max(indexed, 1)
+        // Row 2: whole-disk truth — indexed vs rest vs free, scaled to volume.
+        let volTotal = max(v.total, 1)
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("This Mac").font(.system(size: 14, weight: .bold))
@@ -927,18 +938,29 @@ private struct StorageBarCard: View {
             }
             GeometryReader { geo in
                 HStack(spacing: 3) {
-                    ForEach(segs, id: \.label) { s in
+                    ForEach(cats, id: \.label) { s in
                         RoundedRectangle(cornerRadius: 4)
                             .fill(s.color)
-                            .frame(width: max(s.bytes > 0 ? 3 : 0, geo.size.width * Double(s.bytes) / Double(total)))
+                            .frame(width: max(s.bytes > 0 ? 3 : 0, geo.size.width * Double(s.bytes) / Double(catTotal)))
                     }
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(.white.opacity(0.1))
                 }
             }
             .frame(height: 16)
+            GeometryReader { geo in
+                HStack(spacing: 3) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color(white: 0.32))
+                        .frame(width: max(indexed > 0 ? 3 : 0, geo.size.width * Double(indexed) / Double(volTotal)))
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color(white: 0.18))
+                        .frame(width: max(restOfDisk > 0 ? 3 : 0, geo.size.width * Double(restOfDisk) / Double(volTotal)))
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(.white.opacity(0.1))
+                }
+            }
+            .frame(height: 7)
             HStack(spacing: 14) {
-                ForEach(segs, id: \.label) { s in
+                ForEach(cats, id: \.label) { s in
                     HStack(spacing: 5) {
                         Circle().fill(s.color).frame(width: 8, height: 8)
                         Text("\(s.label) (\(byteString(s.bytes)))")
@@ -946,12 +968,17 @@ private struct StorageBarCard: View {
                     }
                 }
                 HStack(spacing: 5) {
+                    Circle().fill(Color(white: 0.32)).frame(width: 8, height: 8)
+                    Text("Rest of disk (\(byteString(restOfDisk)))")
+                        .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                }
+                HStack(spacing: 5) {
                     Circle().fill(.white.opacity(0.25)).frame(width: 8, height: 8)
                     Text("Free space (\(byteString(v.free)))")
                         .font(.system(size: 11.5)).foregroundStyle(.secondary)
                 }
             }
-            Text("Categories cover indexed folders; the rest is app data, mail, dev dependencies, macOS and more.")
+            Text("Top bar: your indexed folders. Bottom strip: the whole disk — categories plus app data, mail, dev dependencies, macOS and more.")
                 .font(.system(size: 11.5)).foregroundStyle(.tertiary)
         }
         .padding(16)
@@ -1078,7 +1105,7 @@ private struct LineChart: View {
             p.move(to: pt(0, w: w, h: h, maxV: maxV))
             for i in 1..<values.count { p.addLine(to: pt(i, w: w, h: h, maxV: maxV)) }
         }
-        .stroke(Color.blue, lineWidth: 1.5)
+        .stroke(Color.white, lineWidth: 1.5)
     }
 
     private func chartFill(w: CGFloat, h: CGFloat, maxV: Double) -> some View {
@@ -1090,7 +1117,7 @@ private struct LineChart: View {
             p.addLine(to: CGPoint(x: pt(values.count - 1, w: w, h: h, maxV: maxV).x, y: h))
             p.closeSubpath()
         }
-        .fill(LinearGradient(colors: [.blue.opacity(0.25), .clear], startPoint: .top, endPoint: .bottom))
+        .fill(LinearGradient(colors: [.white.opacity(0.3), .clear], startPoint: .top, endPoint: .bottom))
     }
 
     private func xLabels(w: CGFloat, h: CGFloat) -> some View {

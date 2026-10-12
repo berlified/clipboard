@@ -30,6 +30,7 @@ struct LauncherView: View {
                 .stroke(.white.opacity(0.18), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.35), radius: 40, x: 0, y: 20)
+        .preferredColorScheme(.dark)
         .onAppear {
             searchFocused = true
         }
@@ -137,7 +138,7 @@ struct LauncherView: View {
                 .foregroundStyle(.tertiary)
             Text("•")
                 .foregroundStyle(.quaternary)
-            Text("Aura")
+            Text("LiveDocs")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
         }

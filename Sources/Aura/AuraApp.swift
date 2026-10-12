@@ -151,14 +151,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = Self.menuBarIcon()
         }
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Open Aura  (⌃Space)", action: #selector(showFromMenu), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Open LiveDocs  (⌃Space)", action: #selector(showFromMenu), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Files…", action: #selector(openFilesFromMenu), keyEquivalent: ""))
-        pauseItem = NSMenuItem(title: "Pause Aura", action: #selector(togglePause), keyEquivalent: "")
+        pauseItem = NSMenuItem(title: "Pause LiveDocs", action: #selector(togglePause), keyEquivalent: "")
         pauseItem.target = self
         menu.addItem(pauseItem)
         menu.addItem(NSMenuItem(title: "Enable select-to-save bubble…", action: #selector(openAccessibility), keyEquivalent: ""))
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit Aura", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit LiveDocs", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
     }
 
@@ -166,24 +166,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePause() {
         clipboard.paused.toggle()
-        pauseItem.title = clipboard.paused ? "Resume Aura" : "Pause Aura"
+        pauseItem.title = clipboard.paused ? "Resume LiveDocs" : "Pause LiveDocs"
     }
 
     @objc private func openAccessibility() { AccessibilityPermission.prompt() }
 
-    /// Pretty menu-bar mark, drawn once: blue→teal squircle + white folder.
+    /// Menu-bar mark, drawn once: black squircle + white fingerprint.
+    /// Monochrome by design — reads on light and dark menu bars alike.
     nonisolated static func menuBarIcon() -> NSImage {
         let s: CGFloat = 22
         let img = NSImage(size: NSSize(width: s, height: s))
         img.lockFocus()
         let rect = NSRect(x: 2, y: 2, width: s - 4, height: s - 4)
         let bg = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
-        NSGraphicsContext.saveGraphicsState()
-        bg.setClip()
-        let grad = NSGradient(colors: [NSColor.systemBlue, NSColor.systemTeal])!
-        grad.draw(in: rect, angle: -45)
-        NSGraphicsContext.restoreGraphicsState()
-        if let glyph = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "Aura") {
+        NSColor.black.setFill()
+        bg.fill()
+        NSColor.white.withAlphaComponent(0.25).setStroke()
+        bg.lineWidth = 0.75
+        bg.stroke()
+        if let glyph = NSImage(systemSymbolName: "touchid", accessibilityDescription: "LiveDocs") {
             let tinted = NSImage(size: glyph.size)
             tinted.lockFocus()
             let r = NSRect(origin: .zero, size: glyph.size)
