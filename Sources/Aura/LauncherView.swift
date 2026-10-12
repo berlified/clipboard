@@ -24,7 +24,14 @@ struct LauncherView: View {
             footer
         }
         .frame(width: 680, height: 442)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(.black.opacity(0.55))
+            }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(.white.opacity(0.18), lineWidth: 1)

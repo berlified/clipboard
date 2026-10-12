@@ -113,7 +113,7 @@ private struct FilesRootView: View {
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 1020, minHeight: 660)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(.black)
         .preferredColorScheme(.dark)
         .onAppear { indexer.scan() }
         .onChange(of: appliedQuery) { _, _ in selectedRow = 0 }
@@ -183,7 +183,7 @@ private struct FilesRootView: View {
             }
             .padding(.bottom, 12)
         }
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .background(.black)
     }
 
     private var storageMeter: some View {
@@ -592,17 +592,17 @@ private enum ListSort { case date, name, size }
 
 // MARK: - Kind accents (charts, tabs, badges, placeholder tiles)
 
-// Monochrome kind ramp: distinct grays keep charts/legends readable
-// with zero hue. Dark mode only.
+// Monochrome kind ramp: wide-stepped grays keep charts/legends readable
+// on true-black surfaces. Dark mode only.
 private func kindColor(_ kind: FileKind) -> Color {
     switch kind {
     case .document: return .white
-    case .app: return Color(white: 0.88)
-    case .image: return Color(white: 0.74)
-    case .video: return Color(white: 0.6)
-    case .music: return Color(white: 0.46)
-    case .archive: return Color(white: 0.34)
-    case .other: return Color(white: 0.24)
+    case .app: return Color(white: 0.85)
+    case .image: return Color(white: 0.7)
+    case .video: return Color(white: 0.55)
+    case .music: return Color(white: 0.4)
+    case .archive: return Color(white: 0.28)
+    case .other: return Color(white: 0.16)
     }
 }
 
@@ -614,12 +614,12 @@ private func kindGradient(_ kind: FileKind) -> LinearGradient {
     }
     switch kind {
     case .document: return g(0.95, 0.7)
-    case .image: return g(0.8, 0.55)
-    case .video: return g(0.66, 0.42)
-    case .music: return g(0.52, 0.3)
-    case .archive: return g(0.4, 0.22)
-    case .app: return g(0.92, 0.66)
-    case .other: return g(0.32, 0.18)
+    case .image: return g(0.76, 0.5)
+    case .video: return g(0.6, 0.36)
+    case .music: return g(0.46, 0.24)
+    case .archive: return g(0.34, 0.16)
+    case .app: return g(0.9, 0.64)
+    case .other: return g(0.24, 0.1)
     }
 }
 
@@ -922,9 +922,9 @@ private struct StorageBarCard: View {
         // Row 1: indexed breakdown, scaled to the INDEXED total so every
         // category stays visible and proportionally honest.
         let cats = [Seg(label: "Documents", bytes: docs, color: .white),
-                    Seg(label: "Media", bytes: media, color: Color(white: 0.66)),
-                    Seg(label: "Apps", bytes: apps, color: Color(white: 0.42)),
-                    Seg(label: "Other files", bytes: indexedRest, color: Color(white: 0.24))]
+                    Seg(label: "Media", bytes: media, color: Color(white: 0.55)),
+                    Seg(label: "Apps", bytes: apps, color: Color(white: 0.85)),
+                    Seg(label: "Other files", bytes: indexedRest, color: Color(white: 0.3))]
         let catTotal = max(indexed, 1)
         // Row 2: whole-disk truth — indexed vs rest vs free, scaled to volume.
         let volTotal = max(v.total, 1)
@@ -949,10 +949,10 @@ private struct StorageBarCard: View {
             GeometryReader { geo in
                 HStack(spacing: 3) {
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(Color(white: 0.32))
+                        .fill(.white)
                         .frame(width: max(indexed > 0 ? 3 : 0, geo.size.width * Double(indexed) / Double(volTotal)))
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(Color(white: 0.18))
+                        .fill(Color(white: 0.2))
                         .frame(width: max(restOfDisk > 0 ? 3 : 0, geo.size.width * Double(restOfDisk) / Double(volTotal)))
                     RoundedRectangle(cornerRadius: 3)
                         .fill(.white.opacity(0.1))
@@ -968,7 +968,7 @@ private struct StorageBarCard: View {
                     }
                 }
                 HStack(spacing: 5) {
-                    Circle().fill(Color(white: 0.32)).frame(width: 8, height: 8)
+                    Circle().fill(Color(white: 0.2)).frame(width: 8, height: 8)
                     Text("Rest of disk (\(byteString(restOfDisk)))")
                         .font(.system(size: 11.5)).foregroundStyle(.secondary)
                 }
