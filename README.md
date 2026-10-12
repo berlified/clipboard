@@ -1,76 +1,70 @@
-# Aura — Raycast-style launcher, clipboard manager & file search for Mac
+# LiveDocs — launcher, clipboard manager & file search for Mac
 
-Native Swift (SwiftUI + AppKit), Swift Package Manager, no Xcode project needed.
+LiveDocs lives in your menu bar and stays out of the way until you need it.
 
-- **`⌃Space`** → floating launcher: fuzzy app launching, calculator, system actions, clipboard history (`clip`), Google fallback.
-- **`⌘C` just works** — every copy (text, links, emails, images, colors, code) is auto-saved into history, Samsung-keyboard style.
-- **Select text anywhere** → ✨ Save to Aura pill → one click pins it forever.
-- **`files`** → storage & file browser: Homy-style dashboard (Library folders, Clean Up, Downloaded From) over a real background index of your Mac.
+- **`Ctrl + Space`** → floating launcher: fuzzy app launching, calculator, system actions, clipboard history, Google fallback.
+- **Copy anything (`⌘C`)** → it's auto-saved into searchable clipboard history (text, links, images, colors, code).
+- **Select text in any app** → a **Save to LiveDocs** pill appears → one click pins it forever.
+- **Type `files`** → storage & file browser: what your disk holds, what's eating space, duplicates, forgotten downloads, quick search.
 
-![stack](https://img.shields.io/badge/Swift-6.2-orange) ![platform](https://img.shields.io/badge/macOS-14%2B-blue)
+Requires **macOS 14 or later** (Apple Silicon or Intel). Free. Your data never leaves your Mac.
 
-## Launcher
+## Download & install
 
-Centered 680×442 blur panel, `↑↓ ⏎ esc`, recents on empty query, click-outside hides.
+1. Download **`LiveDocs-0.1.0.dmg`** from the [latest release](https://github.com/berlified/clipboard/releases).
+2. Open the DMG and drag **LiveDocs** into **Applications**.
+3. Launch it from Applications or Spotlight.
 
-| Type this | Get this |
+> **"Apple couldn't verify this app"?** Normal for young indie apps (we're not in the paid Developer program yet, so there's no notarization stamp).
+> **Fix:** right-click (or Control-click) LiveDocs → **Open** → **Open** in the dialog. You only do this once; macOS remembers.
+
+## First run (2 minutes)
+
+1. Press **`Ctrl + Space`** — the launcher appears centered on screen.
+2. If nothing happens: open **System Settings → Keyboard → Shortcuts → Input Sources** and uncheck *Select the previous input source* (macOS steals `Ctrl + Space` by default), then relaunch LiveDocs.
+3. For the **select-to-save bubble**, grant Accessibility when asked (or menu bar icon → *Enable select-to-save bubble…* → **System Settings → Privacy & Security → Accessibility → LiveDocs ON**).
+4. Optional: **System Settings → General → Login Items** → **+** → LiveDocs, so it's always there.
+
+## Using it
+
+| Do this | Get this |
 |---|---|
-| `safari`, `term`… | Fuzzy apps with real icons |
-| `12*34`, `50%*200` | Calculator → `⏎` copies |
-| `dark mode`, `lock`… | System actions |
-| `clip`, `clip foo` | Clipboard history search |
-| `files`, `files pdf` | **Files window**, optionally pre-searched |
-| anything else | Search Google for it |
+| `Ctrl + Space`, type `safari` | Launch apps fuzzy-style |
+| `Ctrl + Space`, type `12*34` | Calculator, `Enter` copies |
+| `Ctrl + Space`, type `clip` | Search everything you ever copied, `Enter` pastes it back |
+| `Ctrl + Space`, type `files` | Open the Files window (`files invoice` opens it already searching) |
+| `⌘C` anywhere | Auto-saved to history |
+| Select text anywhere | **Save to LiveDocs** pill → click to pin it |
+| In Files: type, `↑↓ ⏎`, `Space` | Search, navigate, open, **Quick Look** preview |
 
-## Clipboard
+**Files window highlights:** Library folders with live sizes, *Clean Up* cards showing reclaimable space (duplicates confirmed by hash, forgotten downloads, old screenshots, unused apps), *Downloaded From* grouped by real source, per-kind analytics, and a storage bar whose headline matches System Settings exactly.
 
-Local JSON store in `~/Library/Application Support/Aura/` (never leaves your Mac; 1Password/Bitwarden/Keychain never recorded). Images persist as PNGs. `⏎` on a clip copies back and auto-pastes (`⌘V` synthesized — wants Accessibility, else paste manually).
+**Privacy:** everything (clipboard history, file index) lives in `~/Library/Application Support/` on your Mac. Password managers are never recorded. No account, no network calls, no telemetry.
 
-## `files` — storage & file search (the main event)
+## Troubleshooting
 
-Sidebar (Home, Recents, Images/Videos/Music/Documents/Archives/Apps with live counts, Large Files, Screenshots, Duplicates + reclaimable size, Clean Up total, Downloaded From, real Locations), dashboard (greeting, `N files · X across your Mac`, global search, Refresh, pastel Library folder cards with icon stacks, Clean Up cards with big reclaim numbers, Downloaded From row), and sortable file lists (`↑↓ ⏎`, double-click opens, right-click Reveal/Copy Path).
+| Problem | Fix |
+|---|---|
+| `Ctrl + Space` does nothing | Free the shortcut (see step 2 above) |
+| "Unidentified developer" dialog | Right-click → Open (see install note) |
+| Bubble never appears | Accessibility permission off |
+| Pastes the copy but doesn't auto-paste | Accessibility off — `⌘V` manually |
+| Files window shows "Scanning…" | First index takes ~10s on big Macs; it fills in live |
 
-How it works: background indexer walks Desktop/Documents/Downloads/Pictures/Movies/Music + `/Applications`, skipping packages, symlinks and dev cruft (`node_modules`, `.git`, `dist`…). Duplicates are confirmed with partial SHA-256 (no full reads of huge videos), download sources come from `com.apple.metadata:kMDItemWhereFroms`, unused apps from last-access time. Headless check: `./.build/release/Aura --files-scan` prints a JSON summary.
+## Uninstall
 
-## Select-to-save bubble
+Quit from the menu bar icon → delete LiveDocs from Applications → optionally delete `~/Library/Application Support/Aura/` (history + index).
 
-Needs **Accessibility** (macOS only shares other apps' selected text with it): launch prompts once, or menu bar 📋 → `Enable select-to-save bubble…`. Without it, capture + history still work; only the bubble sleeps.
-
-## Hotkey
-
-**`⌃Space`** globally (Carbon, no permission needed). ⚠️ macOS steals it for Input Sources by default: `Settings → Keyboard → Shortcuts → Input Sources` → uncheck → relaunch Aura.
-
-## Run it
+## For developers
 
 ```bash
 git clone https://github.com/berlified/clipboard.git
 cd clipboard
-swift build -c release && ./.build/release/Aura &   # run this (optimized)
-swift run                                           # dev only (debug builds are 2-5x slower)
+./scripts/package.sh 0.1.0   # release build + LiveDocs.app + DMG in dist/
+swift run                    # dev run (debug builds are much slower — daily-drive release)
 ```
 
-> Run the **release** binary day-to-day: debug builds disable compiler optimizations and feel laggy. Full fresh file scan measured at ~12s on a 40k-file Mac (background, progressive); every open after that is instant off the on-disk index.
-
-Menu bar 📋 → Files… / Pause / Quit.
-
-## Code map
-
-```
-Package.swift               # swift-tools 6.0, macOS 14+, executable "Aura"
-Sources/Aura/
-  AuraApp.swift             # accessory app, ⌃Space, menu bar, bubble + files wiring
-  LauncherView.swift        # the floating launcher UI
-  Model.swift               # items, fuzzy search, calculator, apps scan, execution
-  ClipboardManager.swift    # pasteboard capture (text/image/color/code), search, paste, JSON store
-  FilesIndexer.swift        # background file index, dups, sources, search
-  FilesWindow.swift         # Files dashboard + lists + window controller
-  SelectionMonitor.swift    # AX selected-text polling (no key logging)
-  SaveBubble.swift          # non-activating "Save to Aura" pill
-```
-
-## Troubleshooting
-
-- `⌃Space` does nothing → Input Sources conflict (above).
-- Bubble never appears → Accessibility off.
-- Copies but doesn't paste → Accessibility off; `⌘V` manually.
-- Files window empty at first → it's still scanning (progress shows top-right); hit Refresh.
+- Native Swift (SwiftUI + AppKit), Swift Package Manager, macOS 14+, zero dependencies.
+- `./.build/release/Aura --files-scan` prints the file index as JSON (headless check).
+- Architecture: accessory app (`LSUIElement`), Carbon global hotkey, `NSPasteboard` polling, Accessibility selected-text monitor, background `FileManager` indexer with SHA-256 duplicate confirmation.
+- Sources: `AuraApp` (shell) · `LauncherView` + `Model` (launcher) · `ClipboardManager` (capture/history) · `FilesIndexer` + `FilesWindow` (storage browser) · `SelectionMonitor` + `SaveBubble` (select-to-save).
