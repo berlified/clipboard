@@ -589,7 +589,7 @@ private struct FilesRootView: View {
 
 private enum ListSort { case date, name, size }
 
-// MARK: - Kind accents (charts, tabs, badges)
+// MARK: - Kind accents (charts, tabs, badges, placeholder tiles)
 
 private func kindColor(_ kind: FileKind) -> Color {
     switch kind {
@@ -600,6 +600,31 @@ private func kindColor(_ kind: FileKind) -> Color {
     case .archive: return Color(red: 1.0, green: 0.65, blue: 0.2)
     case .app: return Color(red: 1.0, green: 0.35, blue: 0.45)
     case .other: return .gray
+    }
+}
+
+/// Gradient placeholder tiles: rich color instead of blank white doc blobs.
+private func kindGradient(_ kind: FileKind) -> LinearGradient {
+    switch kind {
+    case .document: return LinearGradient(colors: [Color(red: 0.25, green: 0.6, blue: 1.0), Color(red: 0.35, green: 0.35, blue: 0.9)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    case .image: return LinearGradient(colors: [Color(red: 0.75, green: 0.45, blue: 1.0), Color(red: 0.5, green: 0.3, blue: 0.9)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    case .video: return LinearGradient(colors: [Color(red: 0.3, green: 0.8, blue: 1.0), Color(red: 0.1, green: 0.5, blue: 0.95)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    case .music: return LinearGradient(colors: [Color(red: 0.25, green: 0.85, blue: 0.5), Color(red: 0.0, green: 0.6, blue: 0.45)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    case .archive: return LinearGradient(colors: [Color(red: 1.0, green: 0.7, blue: 0.3), Color(red: 0.95, green: 0.5, blue: 0.15)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    case .app: return LinearGradient(colors: [Color(red: 1.0, green: 0.45, blue: 0.5), Color(red: 0.9, green: 0.2, blue: 0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    case .other: return LinearGradient(colors: [Color(red: 0.55, green: 0.55, blue: 0.6), Color(red: 0.35, green: 0.35, blue: 0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+}
+
+private func kindSymbol(_ kind: FileKind) -> String {
+    switch kind {
+    case .document: return "doc.text.fill"
+    case .image: return "photo.fill"
+    case .video: return "video.fill"
+    case .music: return "music.note"
+    case .archive: return "archivebox.fill"
+    case .app: return "app.badge.fill"
+    case .other: return "doc.fill"
     }
 }
 
@@ -674,19 +699,36 @@ private struct ThumbStackView: View {
     var body: some View {
         HStack(spacing: -8) {
             ForEach(files.prefix(3)) { f in
-                Image(nsImage: icon(f))
-                    .resizable().aspectRatio(contentMode: .fill)
-                    .frame(width: 26, height: 26)
-                    .clipShape(Circle())
-                    .overlay { Circle().stroke(.white, lineWidth: 2) }
+                Group {
+                    if f.kind == .image {
+                        Image(nsImage: icon(f))
+                            .resizable().aspectRatio(contentMode: .fill)
+                    } else {
+                        ZStack {
+                            kindGradient(f.kind)
+                            Image(systemName: kindSymbol(f.kind))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .shadow(color: .black.opacity(0.25), radius: 2)
+                        }
+                    }
+                }
+                .frame(width: 26, height: 26)
+                .clipShape(Circle())
+                .overlay { Circle().stroke(.white.opacity(0.35), lineWidth: 1.5) }
+                .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
             }
             if total > 3 {
                 Text("+\(min(total - 3, 99))\(total - 3 > 99 ? "+" : "")")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white)
                     .frame(width: 26, height: 26)
-                    .background(.white, in: Circle())
-                    .overlay { Circle().stroke(.white.opacity(0.1), lineWidth: 1) }
+                    .background(
+                        LinearGradient(colors: [Color(red: 0.45, green: 0.45, blue: 0.5), Color(red: 0.25, green: 0.25, blue: 0.3)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: Circle())
+                    .overlay { Circle().stroke(.white.opacity(0.35), lineWidth: 1.5) }
+                    .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
             }
         }
     }
