@@ -171,19 +171,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openAccessibility() { AccessibilityPermission.prompt() }
 
-    /// Menu-bar mark, drawn once: black squircle + white fingerprint.
-    /// Monochrome by design — reads on light and dark menu bars alike.
+    /// Menu-bar mark, drawn once: aura gradient squircle + white fingerprint.
     nonisolated static func menuBarIcon() -> NSImage {
         let s: CGFloat = 22
         let img = NSImage(size: NSSize(width: s, height: s))
         img.lockFocus()
         let rect = NSRect(x: 2, y: 2, width: s - 4, height: s - 4)
         let bg = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
-        NSColor.black.setFill()
-        bg.fill()
-        NSColor.white.withAlphaComponent(0.25).setStroke()
-        bg.lineWidth = 0.75
-        bg.stroke()
+        NSGraphicsContext.saveGraphicsState()
+        bg.setClip()
+        let grad = NSGradient(colors: [NSColor.systemIndigo, NSColor.systemTeal])!
+        grad.draw(in: rect, angle: -45)
+        NSGraphicsContext.restoreGraphicsState()
         if let glyph = NSImage(systemSymbolName: "touchid", accessibilityDescription: "LiveDocs") {
             let tinted = NSImage(size: glyph.size)
             tinted.lockFocus()

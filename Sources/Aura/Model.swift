@@ -171,46 +171,46 @@ private func formatNumber(_ d: Double) -> String {
 func builtinCommands() -> [LauncherItem] {
     [
         LauncherItem(title: "Open Safari", subtitle: "Application", category: "Apps",
-                     symbol: "safari", tint: .white, keywords: "browser web surf",
+                     symbol: "safari", tint: .blue, keywords: "browser web surf",
                      kind: .app(path: "/Applications/Safari.app")),
         LauncherItem(title: "Open Terminal", subtitle: "Application", category: "Apps",
-                     symbol: "terminal", tint: .white, keywords: "shell console zsh bash",
+                     symbol: "terminal", tint: .primary, keywords: "shell console zsh bash",
                      kind: .app(path: "/System/Applications/Utilities/Terminal.app")),
         LauncherItem(title: "Open Notes", subtitle: "Application", category: "Apps",
-                     symbol: "note.text", tint: .white, keywords: "notes memo write",
+                     symbol: "note.text", tint: .yellow, keywords: "notes memo write",
                      kind: .app(path: "/System/Applications/Notes.app")),
         LauncherItem(title: "Open Calculator", subtitle: "Application", category: "Apps",
-                     symbol: "plus.forwardslash.minus", tint: .white, keywords: "calc math",
+                     symbol: "plus.forwardslash.minus", tint: .orange, keywords: "calc math",
                      kind: .app(path: "/System/Applications/Calculator.app")),
         LauncherItem(title: "System Settings…", subtitle: "Open macOS Settings", category: "System",
-                     symbol: "gearshape", tint: .white, keywords: "settings preferences system",
+                     symbol: "gearshape", tint: .gray, keywords: "settings preferences system",
                      kind: .system(.openSettings)),
         LauncherItem(title: "Toggle Dark Mode", subtitle: "System • Appearance", category: "System",
-                     symbol: "moonphase.first.quarter", tint: .white, keywords: "dark light appearance theme night",
+                     symbol: "moonphase.first.quarter", tint: .purple, keywords: "dark light appearance theme night",
                      kind: .system(.toggleDarkMode)),
         LauncherItem(title: "Lock Screen", subtitle: "System • ⌃⌘Q", category: "System",
-                     symbol: "lock", tint: .white, keywords: "lock screen logout secure",
+                     symbol: "lock", tint: .red, keywords: "lock screen logout secure",
                      kind: .system(.lockScreen)),
         LauncherItem(title: "Sleep Displays", subtitle: "System • Power", category: "System",
-                     symbol: "moon.zzz", tint: .white, keywords: "sleep display monitor off",
+                     symbol: "moon.zzz", tint: .indigo, keywords: "sleep display monitor off",
                      kind: .system(.sleepDisplays)),
         LauncherItem(title: "Empty Trash…", subtitle: "System • Finder", category: "System",
-                     symbol: "trash", tint: .white, keywords: "trash delete empty finder",
+                     symbol: "trash", tint: .secondary, keywords: "trash delete empty finder",
                      kind: .system(.emptyTrash)),
         LauncherItem(title: "Search Google for…", subtitle: "Web search", category: "Web",
-                     symbol: "magnifyingglass", tint: .white, keywords: "google search web",
+                     symbol: "magnifyingglass", tint: .blue, keywords: "google search web",
                      kind: .url(URL(string: "https://www.google.com")!)),
         LauncherItem(title: "Open GitHub", subtitle: "https://github.com", category: "Web",
-                     symbol: "chevron.left.forwardslash.chevron.right", tint: .white, keywords: "github code git repo",
+                     symbol: "chevron.left.forwardslash.chevron.right", tint: .primary, keywords: "github code git repo",
                      kind: .url(URL(string: "https://github.com")!)),
         LauncherItem(title: "Open YouTube", subtitle: "https://youtube.com", category: "Web",
-                     symbol: "play.rectangle", tint: .white, keywords: "youtube video watch",
+                     symbol: "play.rectangle", tint: .red, keywords: "youtube video watch",
                      kind: .url(URL(string: "https://youtube.com")!)),
         LauncherItem(title: "Clipboard History…", subtitle: "Search your copies • type “clip”", category: "Clipboard",
-                     symbol: "clipboard", tint: .white, keywords: "clipboard history copy paste clip",
+                     symbol: "clipboard", tint: .mint, keywords: "clipboard history copy paste clip",
                      kind: .clipboardMode),
         LauncherItem(title: "Files…", subtitle: "Browse storage & files • type “files pdf” to search", category: "Files",
-                     symbol: "folder", tint: .white, keywords: "files finder folders storage disk documents browse search",
+                     symbol: "folder", tint: .blue, keywords: "files finder folders storage disk documents browse search",
                      kind: .filesMode),
     ]
 }
@@ -238,7 +238,7 @@ func scannedApps(limit: Int = 60) -> [LauncherItem] {
                 subtitle: "Application",
                 category: "Apps",
                 symbol: "app",
-                tint: .white,
+                tint: .accentColor,
                 keywords: name.lowercased(),
                 kind: .app(path: path)
             ))
@@ -336,7 +336,7 @@ func clipboardItem(_ entry: ClipboardEntry) -> LauncherItem {
         subtitle: "Clipboard • \(kindLabel) • \(entry.ageString) • ⏎ to paste",
         category: "Clipboard",
         symbol: icon,
-        tint: .white,
+        tint: .mint,
         keywords: String(entry.text.prefix(500)),
         kind: .clipboard(entry: entry)
     )
@@ -387,7 +387,7 @@ final class LauncherModel: ObservableObject {
                 subtitle: "Calculator • ⏎ to copy",
                 category: "Calc",
                 symbol: "plus.forwardslash.minus",
-                tint: .white,
+                tint: .orange,
                 keywords: "calc",
                 kind: .calculator(result: result)
             )]
@@ -402,7 +402,7 @@ final class LauncherModel: ObservableObject {
                 subtitle: "Browse storage & files across your Mac",
                 category: "Files",
                 symbol: "folder",
-                tint: .white,
+                tint: .blue,
                 keywords: "files",
                 kind: .filesMode
             )]
@@ -412,7 +412,7 @@ final class LauncherModel: ObservableObject {
                     subtitle: "Files • names, kinds and folders",
                     category: "Files",
                     symbol: "magnifyingglass",
-                    tint: .white,
+                    tint: .blue,
                     keywords: "files",
                     kind: .filesSearch(query: rest)
                 ))
@@ -433,7 +433,7 @@ final class LauncherModel: ObservableObject {
                         : "Try a different search",
                     category: "Clipboard",
                     symbol: "clipboard",
-                    tint: .white,
+                    tint: .mint,
                     keywords: "",
                     kind: .clipboardMode
                 )]
@@ -476,7 +476,7 @@ final class LauncherModel: ObservableObject {
                 subtitle: "Web • google.com",
                 category: "Web",
                 symbol: "magnifyingglass",
-                tint: .white,
+                tint: .blue,
                 keywords: "search",
                 kind: .webSearch(query: q)
             ))

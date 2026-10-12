@@ -143,12 +143,9 @@ private struct FilesRootView: View {
                 HStack(spacing: 8) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(.black)
+                            .fill(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
                             .frame(width: 28, height: 28)
                         Image(systemName: "touchid").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.25), lineWidth: 0.5)
                     }
                     Text("LiveDocs").font(.system(size: 15, weight: .semibold))
                 }
@@ -204,7 +201,7 @@ private struct FilesRootView: View {
                         .fill(.white.opacity(0.12))
                         .frame(height: 6)
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(LinearGradient(colors: [.white, Color(white: 0.45)], startPoint: .leading, endPoint: .trailing))
+                        .fill(LinearGradient(colors: [.green, .mint], startPoint: .leading, endPoint: .trailing))
                         .frame(width: max(4, geo.size.width * frac), height: 6)
                 }
             }
@@ -245,16 +242,16 @@ private struct FilesRootView: View {
             HStack(spacing: 9) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(folder ? .white : .secondary)
+                    .foregroundStyle(folder ? .blue : .secondary)
                     .frame(width: 18)
                 Text(title).font(.system(size: 13, weight: active ? .semibold : .regular))
                 Spacer()
                 if let badge {
-                    Text(badge).font(.system(size: 11, weight: .bold)).foregroundStyle(.black)
+                    Text(badge).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
                         .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(.white, in: Capsule())
+                        .background(.red, in: Capsule())
                 } else if let green {
-                    Text(green).font(.system(size: 11, weight: .medium)).foregroundStyle(.white)
+                    Text(green).font(.system(size: 11, weight: .medium)).foregroundStyle(.green)
                 } else if let count {
                     Text(count).font(.system(size: 11)).foregroundStyle(.tertiary)
                 }
@@ -347,7 +344,8 @@ private struct FilesRootView: View {
                     ForEach([FileKind.image, .video, .music, .document, .archive, .app], id: \.self) { kind in
                         FolderCard(kind: kind,
                                    count: indexer.count(for: kind),
-                                   bytes: indexer.bytes(for: kind)) {
+                                   bytes: indexer.bytes(for: kind),
+                                   top: Array(indexer.byKind(kind).prefix(3))) {
                             selection = .kind(kind)
                         }
                     }
@@ -360,31 +358,31 @@ private struct FilesRootView: View {
                 HStack {
                     Text("Clean Up").font(.system(size: 17, weight: .bold))
                     Text("Free up to \(byteString(cleanupBytes))").font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.black).padding(.horizontal, 9).padding(.vertical, 3)
-                        .background(.white, in: Capsule())
+                        .foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 3)
+                        .background(Color(red: 0.2, green: 0.65, blue: 0.35), in: Capsule())
                 }
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
                     let dups = indexer.duplicates()
                     let dupBytes = dups.reduce(0) { $0 + $1.extraBytes }
                     let dupCount = dups.reduce(0) { $0 + $1.files.count - 1 }
-                    CleanupCard(icon: "doc.on.doc.fill", iconTint: .white,
+                    CleanupCard(icon: "doc.on.doc.fill", iconTint: .red,
                                 label: "Duplicates", big: byteString(dupBytes), detail: "\(dupCount) extra copies") {
                         selection = .duplicates
                     }
                     let forg = indexer.forgottenDownloads()
-                    CleanupCard(icon: "arrow.down.circle.fill", iconTint: .white,
+                    CleanupCard(icon: "arrow.down.circle.fill", iconTint: .blue,
                                 label: "Forgotten Downloads", big: byteString(forg.reduce(0) { $0 + $1.size }),
                                 detail: "\(forg.count) items") {
                         selection = .forgotten
                     }
                     let old = indexer.oldScreenshots()
-                    CleanupCard(icon: "camera.fill", iconTint: .white,
+                    CleanupCard(icon: "camera.fill", iconTint: .pink,
                                 label: "Old Screenshots", big: byteString(old.reduce(0) { $0 + $1.size }),
                                 detail: "\(old.count) items") {
                         selection = .oldScreenshots
                     }
                     let un = indexer.unusedApps()
-                    CleanupCard(icon: "app.badge.fill", iconTint: .white,
+                    CleanupCard(icon: "app.badge.fill", iconTint: .green,
                                 label: "Unused Apps", big: byteString(un.reduce(0) { $0 + $1.size }),
                                 detail: "\(un.count) items") {
                         selection = .unusedApps
@@ -594,34 +592,35 @@ private enum ListSort { case date, name, size }
 
 // MARK: - Kind accents (charts, tabs, badges, placeholder tiles)
 
-// Monochrome kind ramp: wide-stepped grays keep charts/legends readable
-// on true-black surfaces. Dark mode only.
+// Aura gradient system: vivid two-stop mesh-style gradients per kind,
+// solid lead hues for dots, tabs and chart segments. Dark surfaces only.
 private func kindColor(_ kind: FileKind) -> Color {
     switch kind {
-    case .document: return .white
-    case .app: return Color(white: 0.85)
-    case .image: return Color(white: 0.7)
-    case .video: return Color(white: 0.55)
-    case .music: return Color(white: 0.4)
-    case .archive: return Color(white: 0.28)
-    case .other: return Color(white: 0.16)
+    case .document: return Color(red: 0.15, green: 0.55, blue: 1.0)
+    case .app: return Color(red: 1.0, green: 0.32, blue: 0.42)
+    case .image: return Color(red: 0.72, green: 0.36, blue: 0.95)
+    case .video: return Color(red: 0.25, green: 0.75, blue: 1.0)
+    case .music: return Color(red: 0.15, green: 0.8, blue: 0.5)
+    case .archive: return Color(red: 1.0, green: 0.62, blue: 0.1)
+    case .other: return Color(red: 0.6, green: 0.6, blue: 0.65)
     }
 }
 
-/// Gradient placeholder tiles, monochrome: stepped grays per kind.
+/// Gradient placeholder tiles: rich aura color per kind.
 private func kindGradient(_ kind: FileKind) -> LinearGradient {
-    func g(_ top: Double, _ bottom: Double) -> LinearGradient {
-        LinearGradient(colors: [Color(white: top), Color(white: bottom)],
+    func g(_ top: (Double, Double, Double), _ bottom: (Double, Double, Double)) -> LinearGradient {
+        LinearGradient(colors: [Color(red: top.0, green: top.1, blue: top.2),
+                                Color(red: bottom.0, green: bottom.1, blue: bottom.2)],
                        startPoint: .topLeading, endPoint: .bottomTrailing)
     }
     switch kind {
-    case .document: return g(0.95, 0.7)
-    case .image: return g(0.76, 0.5)
-    case .video: return g(0.6, 0.36)
-    case .music: return g(0.46, 0.24)
-    case .archive: return g(0.34, 0.16)
-    case .app: return g(0.9, 0.64)
-    case .other: return g(0.24, 0.1)
+    case .document: return g((0.2, 0.6, 1.0), (0.35, 0.3, 0.9))
+    case .image: return g((0.78, 0.42, 1.0), (0.5, 0.25, 0.9))
+    case .video: return g((0.3, 0.8, 1.0), (0.1, 0.45, 0.95))
+    case .music: return g((0.2, 0.85, 0.55), (0.0, 0.6, 0.5))
+    case .archive: return g((1.0, 0.68, 0.25), (0.95, 0.45, 0.1))
+    case .app: return g((1.0, 0.4, 0.5), (0.88, 0.15, 0.35))
+    case .other: return g((0.6, 0.6, 0.65), (0.35, 0.35, 0.4))
     }
 }
 
@@ -650,6 +649,7 @@ private struct FolderCard: View {
     let kind: FileKind
     let count: Int
     let bytes: Int64
+    let top: [IndexedFile]
     var action: () -> Void
 
     var body: some View {
@@ -684,7 +684,7 @@ private struct FolderCard: View {
                         .padding(.horizontal, 14).padding(.top, 6)
                     Divider().background(.white.opacity(0.1)).padding(.horizontal, 14).padding(.top, 8)
                     HStack {
-                        ThumbStackView(kind: kind, count: count)
+                        ThumbStackView(kind: kind, files: top, total: count)
                         Spacer()
                         Text("\(count) items · \(byteString(bytes))")
                             .font(.system(size: 11.5)).foregroundStyle(.secondary)
@@ -699,28 +699,30 @@ private struct FolderCard: View {
 }
 
 private struct ThumbStackView: View {
-    /// Every circle shares the card's kind gradient — photos included — so
-    /// the stack reads as one family, with +N in the same style.
+    /// One visual family per card: kind gradient + glyph on every circle,
+    /// hover any circle for that file's name + size, +N in the same style.
     let kind: FileKind
-    let count: Int
+    let files: [IndexedFile]
+    let total: Int
 
     var body: some View {
         HStack(spacing: -8) {
-            ForEach(0..<min(3, count), id: \.self) { _ in
+            ForEach(files.prefix(3)) { f in
                 ZStack {
                     kindGradient(kind)
                     Image(systemName: kindSymbol(kind))
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(kind == .document || kind == .app || kind == .image ? .black : .white)
-                        .shadow(color: .black.opacity(0.2), radius: 2)
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.25), radius: 2)
                 }
                 .frame(width: 26, height: 26)
                 .clipShape(Circle())
                 .overlay { Circle().stroke(.white.opacity(0.35), lineWidth: 1.5) }
                 .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
+                .help("\(f.name) · \(byteString(f.size))")
             }
-            if count > 3 {
-                Text("+\(min(count - 3, 99))\(count - 3 > 99 ? "+" : "")")
+            if total > files.count {
+                Text("+\(min(total - files.count, 99))\(total - files.count > 99 ? "+" : "")")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 26, height: 26)
@@ -779,11 +781,11 @@ private struct SourceCard: View {
             HStack(spacing: 10) {
                 ZStack {
                     Circle()
-                        .fill(LinearGradient(colors: [.white.opacity(0.85), .white.opacity(0.45)],
+                        .fill(LinearGradient(colors: [kindColor(.image), kindColor(.video)],
                                              startPoint: .topLeading, endPoint: .bottomTrailing))
                         .frame(width: 38, height: 38)
                     Text(String(source.host.prefix(1)).uppercased())
-                        .font(.system(size: 16, weight: .bold)).foregroundStyle(.black)
+                        .font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(source.host).font(.system(size: 13, weight: .semibold)).lineLimit(1)
@@ -837,11 +839,11 @@ private struct FileRow: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(selected ? .white.opacity(0.1) : .clear,
+        .background(selected ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.3) : .clear,
                     in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             if selected {
-                RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .controlAccentColor).opacity(0.6), lineWidth: 1)
             }
         }
     }
@@ -877,9 +879,9 @@ private struct StatCard: View {
                     Text("\(trend >= 0 ? "+" : "")\(Int(trend.rounded()))%")
                         .font(.system(size: 11, weight: .bold))
                 }
-                .foregroundStyle(trend >= 0 ? .black : .white)
+                .foregroundStyle(trend >= 0 ? .green : .red)
                 .padding(.horizontal, 7).padding(.vertical, 3)
-                .background(trend >= 0 ? .white : .white.opacity(0.14), in: Capsule())
+                .background((trend >= 0 ? Color.green : Color.red).opacity(0.16), in: Capsule())
             }
             HStack(spacing: 5) {
                 Image(systemName: "calendar").font(.system(size: 10)).foregroundStyle(.tertiary)
@@ -923,10 +925,10 @@ private struct StorageBarCard: View {
         let restOfDisk = max(0, used - indexed)
         // Row 1: indexed breakdown, scaled to the INDEXED total so every
         // category stays visible and proportionally honest.
-        let cats = [Seg(label: "Documents", bytes: docs, color: .white),
-                    Seg(label: "Media", bytes: media, color: Color(white: 0.55)),
-                    Seg(label: "Apps", bytes: apps, color: Color(white: 0.85)),
-                    Seg(label: "Other files", bytes: indexedRest, color: Color(white: 0.3))]
+        let cats = [Seg(label: "Documents", bytes: docs, color: .blue),
+                    Seg(label: "Media", bytes: media, color: .yellow),
+                    Seg(label: "Apps", bytes: apps, color: .red),
+                    Seg(label: "Other files", bytes: indexedRest, color: .gray)]
         let catTotal = max(indexed, 1)
         // Row 2: whole-disk truth — indexed vs rest vs free, scaled to volume.
         let volTotal = max(v.total, 1)
@@ -951,10 +953,10 @@ private struct StorageBarCard: View {
             GeometryReader { geo in
                 HStack(spacing: 3) {
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(.white)
+                        .fill(Color(nsColor: .controlAccentColor))
                         .frame(width: max(indexed > 0 ? 3 : 0, geo.size.width * Double(indexed) / Double(volTotal)))
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(Color(white: 0.2))
+                        .fill(Color(red: 0.45, green: 0.45, blue: 0.5))
                         .frame(width: max(restOfDisk > 0 ? 3 : 0, geo.size.width * Double(restOfDisk) / Double(volTotal)))
                     RoundedRectangle(cornerRadius: 3)
                         .fill(.white.opacity(0.1))
@@ -970,7 +972,7 @@ private struct StorageBarCard: View {
                     }
                 }
                 HStack(spacing: 5) {
-                    Circle().fill(Color(white: 0.2)).frame(width: 8, height: 8)
+                    Circle().fill(Color(red: 0.45, green: 0.45, blue: 0.5)).frame(width: 8, height: 8)
                     Text("Rest of disk (\(byteString(restOfDisk)))")
                         .font(.system(size: 11.5)).foregroundStyle(.secondary)
                 }
@@ -1107,7 +1109,7 @@ private struct LineChart: View {
             p.move(to: pt(0, w: w, h: h, maxV: maxV))
             for i in 1..<values.count { p.addLine(to: pt(i, w: w, h: h, maxV: maxV)) }
         }
-        .stroke(Color.white, lineWidth: 1.5)
+        .stroke(Color.blue, lineWidth: 1.5)
     }
 
     private func chartFill(w: CGFloat, h: CGFloat, maxV: Double) -> some View {
@@ -1119,7 +1121,7 @@ private struct LineChart: View {
             p.addLine(to: CGPoint(x: pt(values.count - 1, w: w, h: h, maxV: maxV).x, y: h))
             p.closeSubpath()
         }
-        .fill(LinearGradient(colors: [.white.opacity(0.3), .clear], startPoint: .top, endPoint: .bottom))
+        .fill(LinearGradient(colors: [.blue.opacity(0.3), .purple.opacity(0.05)], startPoint: .top, endPoint: .bottom))
     }
 
     private func xLabels(w: CGFloat, h: CGFloat) -> some View {
