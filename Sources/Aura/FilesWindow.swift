@@ -113,7 +113,7 @@ private struct FilesRootView: View {
 
                 Divider().padding(.vertical, 6)
                 sideItem(icon: "archivebox", title: "Large Files", sel: .largeFiles,
-                         badge: "\(min(indexer.largeFiles().count, 50))")
+                         badge: "\(indexer.largeOver100MB())")
                 sideItem(icon: "camera", title: "Screenshots", sel: .screenshots,
                          count: "\(indexer.screenshots().count)")
                 let dups = indexer.duplicates()

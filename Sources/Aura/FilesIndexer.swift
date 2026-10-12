@@ -50,7 +50,7 @@ func categorizeFile(name: String, isApp: Bool) -> FileKind {
 
 // MARK: - Indexed file
 
-struct IndexedFile: Identifiable, Hashable {
+struct IndexedFile: Identifiable, Hashable, Codable, Sendable {
     /// Stable identity = full path.
     var id: String { path }
     var name: String
@@ -129,6 +129,82 @@ func byteString(_ b: Int64) -> String {
     ByteCountFormatter.string(fromByteCount: b, countStyle: .file)
 }
 
+// MARK: - Cached analysis (computed once per scan, off the main thread)
+//
+// Every derived list lives here. The UI reads these — never recomputes —
+// so rendering stays at 60fps no matter how big the library gets.
+
+struct FileAnalysis: Sendable {
+    var byKind: [FileKind: [IndexedFile]] = [:]
+    var recents: [IndexedFile] = []
+    var large: [IndexedFile] = []
+    var largeCount = 0
+    var shots: [IndexedFile] = []
+    var dupGroups: [DupGroup] = []
+    var forgotten: [IndexedFile] = []
+    var oldShots: [IndexedFile] = []
+    var unused: [IndexedFile] = []
+    var sources: [DownloadSource] = []
+    var dupExtraBytes: Int64 = 0
+
+    static let empty = FileAnalysis()
+
+    nonisolated static func compute(files: [IndexedFile], apps: [IndexedFile]) -> FileAnalysis {
+        var a = FileAnalysis()
+        let all = files + apps
+        var byKind: [FileKind: [IndexedFile]] = [:]
+        for f in files { byKind[f.kind, default: []].append(f) }
+        byKind[.app] = apps.sorted { $0.size > $1.size }
+        for k in byKind.keys where k != .app {
+            byKind[k]?.sort { $0.modified > $1.modified }
+        }
+        a.byKind = byKind
+        a.recents = Array(all.sorted { $0.modified > $1.modified }.prefix(200))
+        let large = files.filter { $0.size > 0 }.sorted { $0.size > $1.size }
+        a.large = Array(large.prefix(200))
+        a.largeCount = large.filter { $0.size > 100_000_000 }.count
+        a.shots = files.filter(\.isScreenshot).sorted { $0.modified > $1.modified }
+        a.dupGroups = findDuplicates(in: files)
+        a.dupExtraBytes = a.dupGroups.reduce(0) { $0 + $1.extraBytes }
+        let cutoff30 = Date().addingTimeInterval(-30 * 86400)
+        let dl = NSHomeDirectory() + "/Downloads/"
+        a.forgotten = files.filter { $0.path.hasPrefix(dl) && $0.modified < cutoff30 }
+            .sorted { $0.modified < $1.modified }
+        a.oldShots = a.shots.filter { $0.modified < cutoff30 }
+        let cutoff90 = Date().addingTimeInterval(-90 * 86400)
+        a.unused = apps.filter { ($0.accessed ?? $0.modified) < cutoff90 }
+            .sorted { ($0.accessed ?? $0.modified) < ($1.accessed ?? $1.modified) }
+        var agg: [String: (count: Int, bytes: Int64)] = [:]
+        for f in files {
+            guard let h = f.sourceHost else { continue }
+            let cur = agg[h] ?? (0, 0)
+            agg[h] = (cur.count + 1, cur.bytes + f.size)
+        }
+        a.sources = agg.map { DownloadSource(host: $0.key, count: $0.value.count, bytes: $0.value.bytes) }
+            .sorted { $0.bytes > $1.bytes }
+        return a
+    }
+
+    nonisolated static func findDuplicates(in files: [IndexedFile]) -> [DupGroup] {
+        var bySize: [Int64: [IndexedFile]] = [:]
+        for f in files where f.size > 0 && f.kind != .app {
+            bySize[f.size, default: []].append(f)
+        }
+        var groups: [DupGroup] = []
+        for (size, list) in bySize where list.count > 1 {
+            var byHash: [String: [IndexedFile]] = [:]
+            for f in list {
+                guard let h = partialHash(path: f.path, size: f.size) else { continue }
+                byHash[h, default: []].append(f)
+            }
+            for (_, g) in byHash where g.count > 1 {
+                groups.append(DupGroup(size: size, files: g.sorted { $0.path < $1.path }))
+            }
+        }
+        return groups.sorted { $0.extraBytes > $1.extraBytes }
+    }
+}
+
 // MARK: - Indexer
 
 struct DupGroup: Identifiable {
@@ -151,9 +227,43 @@ final class FilesIndexer: ObservableObject {
     @Published private(set) var apps: [IndexedFile] = []
     @Published private(set) var scanning = false
     @Published private(set) var scannedCount = 0
+    /// Everything derived, refreshed once per scan off-main. The UI reads
+    /// these and never recomputes (duplicate hashing on the render path was
+    /// the old freeze).
+    @Published private(set) var analysis = FileAnalysis.empty
 
     private let iconCache = NSCache<NSString, NSImage>()
     private let maxFiles = 40_000
+    private var indexURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Aura/files-index.json", isDirectory: false)
+    }
+
+    init() {
+        // Instant open: last index loads in milliseconds, refresh happens behind.
+        if let data = try? Data(contentsOf: indexURL),
+           let saved = try? JSONDecoder().decode(PersistedIndex.self, from: data) {
+            files = saved.files
+            apps = saved.apps
+            scannedCount = files.count + apps.count
+            analysis = FileAnalysis.compute(files: files, apps: apps)
+        }
+    }
+
+    private struct PersistedIndex: Codable {
+        var files: [IndexedFile]
+        var apps: [IndexedFile]
+    }
+
+    private func persist() {
+        do {
+            try FileManager.default.createDirectory(at: indexURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(PersistedIndex(files: files, apps: apps))
+            try data.write(to: indexURL, options: .atomic)
+        } catch {
+            // Non-fatal; next open just rescans.
+        }
+    }
 
     var allEntries: [IndexedFile] { files + apps }
 
@@ -169,7 +279,9 @@ final class FilesIndexer: ObservableObject {
         defer { scanning = false }
         files = []
         apps = []
+        analysis = .empty
         scannedCount = 0
+        let cap = maxFiles
 
         // Phase 1: home folders (fast metadata pass, progressive).
         let home = NSHomeDirectory()
@@ -177,29 +289,41 @@ final class FilesIndexer: ObservableObject {
             .map { home + "/" + $0 }
             .filter { FileManager.default.fileExists(atPath: $0) }
         let batches = await Task.detached(priority: .utility) {
-            Self.enumerateFiles(roots: roots, maxFiles: self.maxFiles)
+            Self.enumerateFiles(roots: roots, maxFiles: cap)
         }.value
         for batch in batches {
             files.append(contentsOf: batch)
             scannedCount = files.count
         }
 
-        // Phase 2: applications (sizes are slow — one row at a time).
+        // Phase 2: app sizes in parallel (sequential sizing was the old stall).
         let appDirs = ["/Applications", home + "/Applications"]
             .filter { FileManager.default.fileExists(atPath: $0) }
         let found = await Task.detached(priority: .utility) {
             Self.enumerateApps(dirs: appDirs)
         }.value
-        for var app in found {
-            let appPath = app.path
-            let size = await Task.detached(priority: .utility) {
-                directoryAllocatedSize(URL(fileURLWithPath: appPath))
-            }.value
-            app.size = size
-            apps.append(app)
-            scannedCount = files.count + apps.count
+        let sized = await withTaskGroup(of: IndexedFile.self) { group in
+            for app in found {
+                group.addTask(priority: .utility) {
+                    var a = app
+                    a.size = directoryAllocatedSize(URL(fileURLWithPath: app.path))
+                    return a
+                }
+            }
+            var out: [IndexedFile] = []
+            for await a in group { out.append(a) }
+            return out
         }
-        apps.sort { $0.size > $1.size }
+        apps = sized.sorted { $0.size > $1.size }
+        scannedCount = files.count + apps.count
+
+        // Phase 3: analytics off-main, once. Persists for instant next open.
+        let snapshotFiles = files
+        let snapshotApps = apps
+        analysis = await Task.detached(priority: .utility) {
+            FileAnalysis.compute(files: snapshotFiles, apps: snapshotApps)
+        }.value
+        persist()
     }
 
     nonisolated static func enumerateFiles(roots: [String], maxFiles: Int) -> [[IndexedFile]] {
@@ -280,13 +404,14 @@ final class FilesIndexer: ObservableObject {
         return out
     }
 
-    // MARK: Derived
+    // MARK: Derived — all reads hit the cached analysis (O(1)-ish, no I/O)
 
     var totalBytes: Int64 {
         files.reduce(0) { $0 + $1.size } + apps.reduce(0) { $0 + $1.size }
     }
 
     func count(for kind: FileKind) -> Int {
+        // Live counts stay fresh mid-scan; full lists come from analysis.
         kind == .app ? apps.count : files.filter { $0.kind == kind }.count
     }
 
@@ -296,69 +421,41 @@ final class FilesIndexer: ObservableObject {
     }
 
     func byKind(_ kind: FileKind) -> [IndexedFile] {
-        let list = kind == .app ? apps : files.filter { $0.kind == kind }
-        return list.sorted { $0.modified > $1.modified }
+        analysis.byKind[kind] ?? []
     }
 
     func recents(limit: Int = 60) -> [IndexedFile] {
-        allEntries.sorted { $0.modified > $1.modified }.prefix(limit).map { $0 }
+        Array(analysis.recents.prefix(limit))
     }
 
     func largeFiles(limit: Int = 50) -> [IndexedFile] {
-        files.filter { $0.size > 0 }.sorted { $0.size > $1.size }.prefix(limit).map { $0 }
+        Array(analysis.large.prefix(limit))
     }
 
+    func largeOver100MB() -> Int { analysis.largeCount }
+
     func screenshots() -> [IndexedFile] {
-        files.filter(\.isScreenshot).sorted { $0.modified > $1.modified }
+        analysis.shots
     }
 
     func duplicates() -> [DupGroup] {
-        var bySize: [Int64: [IndexedFile]] = [:]
-        for f in files where f.size > 0 && f.kind != .app {
-            bySize[f.size, default: []].append(f)
-        }
-        var groups: [DupGroup] = []
-        for (size, list) in bySize where list.count > 1 {
-            var byHash: [String: [IndexedFile]] = [:]
-            for f in list {
-                guard let h = partialHash(path: f.path, size: f.size) else { continue }
-                byHash[h, default: []].append(f)
-            }
-            for (_, g) in byHash where g.count > 1 {
-                groups.append(DupGroup(size: size, files: g.sorted { $0.path < $1.path }))
-            }
-        }
-        return groups.sorted { $0.extraBytes > $1.extraBytes }
+        analysis.dupGroups
     }
 
     func forgottenDownloads(days: Int = 30) -> [IndexedFile] {
-        let cutoff = Date().addingTimeInterval(TimeInterval(-days * 86400))
-        let dl = NSHomeDirectory() + "/Downloads/"
-        return files.filter { $0.path.hasPrefix(dl) && $0.modified < cutoff }
-            .sorted { $0.modified < $1.modified }
+        analysis.forgotten
     }
 
     func oldScreenshots(days: Int = 30) -> [IndexedFile] {
-        let cutoff = Date().addingTimeInterval(TimeInterval(-days * 86400))
-        return screenshots().filter { $0.modified < cutoff }
+        analysis.oldShots
     }
 
     func unusedApps(days: Int = 90) -> [IndexedFile] {
-        let cutoff = Date().addingTimeInterval(TimeInterval(-days * 86400))
-        return apps.filter { ($0.accessed ?? $0.modified) < cutoff }
-            .sorted { ($0.accessed ?? $0.modified) < ($1.accessed ?? $1.modified) }
+        analysis.unused
     }
 
     func downloadSources(limit: Int = 12) -> [DownloadSource] {
-        var agg: [String: (count: Int, bytes: Int64)] = [:]
-        for f in files {
-            guard let h = f.sourceHost else { continue }
-            let cur = agg[h] ?? (0, 0)
-            agg[h] = (cur.count + 1, cur.bytes + f.size)
-        }
-        return agg.map { DownloadSource(host: $0.key, count: $0.value.count, bytes: $0.value.bytes) }
-            .sorted { $0.bytes > $1.bytes }
-            .prefix(limit).map { $0 }
+        Array(analysis.sources.prefix(limit))
     }
 
     func search(_ query: String, in scope: [IndexedFile]? = nil, limit: Int = 60) -> [IndexedFile] {
