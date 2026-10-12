@@ -558,6 +558,14 @@ final class FilesIndexer: ObservableObject {
         return (t, f)
     }
 
+    /// True disk usage (total − free). This is the number System Settings shows.
+    /// Our category cards only cover indexed folders, so `used − indexed`
+    /// is rendered as an explicit "Rest of disk" segment instead of vanishing.
+    func volumeUsed() -> Int64 {
+        let v = volumeInfo()
+        return max(0, v.total - v.free)
+    }
+
     // MARK: Icons (cached; rows must never touch disk per frame)
 
     func fileIcon(_ f: IndexedFile) -> NSImage {

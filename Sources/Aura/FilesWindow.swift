@@ -185,7 +185,7 @@ private struct FilesRootView: View {
 
     private var storageMeter: some View {
         let v = indexer.volumeInfo()
-        let used = indexer.totalBytes
+        let used = indexer.volumeUsed()
         let frac = v.total > 0 ? min(1, Double(used) / Double(v.total)) : 0
         return VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
@@ -314,7 +314,7 @@ private struct FilesRootView: View {
                 // Greeting
                 VStack(alignment: .leading, spacing: 2) {
                     Text(greeting).font(.system(size: 26, weight: .bold))
-                    Text("\(indexer.files.count + indexer.apps.count) files · \(byteString(indexer.totalBytes)) across your Mac")
+                    Text("\(indexer.files.count + indexer.apps.count) files · \(byteString(indexer.totalBytes)) indexed · \(byteString(indexer.volumeUsed())) of \(byteString(indexer.volumeInfo().total)) on disk")
                         .font(.system(size: 13)).foregroundStyle(.secondary)
                 }
 
@@ -903,21 +903,26 @@ private struct StorageBarCard: View {
 
     var body: some View {
         let v = indexer.volumeInfo()
+        let used = indexer.volumeUsed()
         let docs = indexer.bytes(for: .document)
         let media = indexer.bytes(for: .image) + indexer.bytes(for: .video) + indexer.bytes(for: .music)
         let apps = indexer.bytes(for: .app)
-        let rest = max(0, indexer.totalBytes - docs - media - apps)
+        let indexedRest = max(0, indexer.totalBytes - docs - media - apps)
+        // The truthful remainder: mail, messages, Library app data, dev
+        // dependencies, macOS itself — counted by the volume, not our index.
+        let restOfDisk = max(0, used - indexer.totalBytes)
         let segs = [Seg(label: "Documents", bytes: docs, color: .blue),
                     Seg(label: "Media", bytes: media, color: .yellow),
                     Seg(label: "Apps", bytes: apps, color: .red),
-                    Seg(label: "Other files", bytes: rest, color: .gray)]
+                    Seg(label: "Other files", bytes: indexedRest, color: .gray),
+                    Seg(label: "Rest of disk", bytes: restOfDisk, color: Color(red: 0.45, green: 0.45, blue: 0.5))]
         let total = max(v.total, 1)
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("This Mac").font(.system(size: 14, weight: .bold))
                     + Text(" Space's").font(.system(size: 14)).foregroundStyle(.secondary)
                 Spacer()
-                Text("Using \(byteString(indexer.totalBytes)) of \(byteString(v.total))")
+                Text("Using \(byteString(used)) of \(byteString(v.total))")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             GeometryReader { geo in
@@ -946,7 +951,7 @@ private struct StorageBarCard: View {
                         .font(.system(size: 11.5)).foregroundStyle(.secondary)
                 }
             }
-            Text("Only indexed folders are counted. Free more with Clean Up below.")
+            Text("Categories cover indexed folders; the rest is app data, mail, dev dependencies, macOS and more.")
                 .font(.system(size: 11.5)).foregroundStyle(.tertiary)
         }
         .padding(16)
