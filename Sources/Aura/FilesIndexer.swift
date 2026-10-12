@@ -151,6 +151,15 @@ struct FileAnalysis: Sendable {
     var bytesTotal: Int64 = 0
     /// Pre-grouped by the Locations roots the UI actually queries.
     var byRoot: [String: [IndexedFile]] = [:]
+    /// Per-kind created-date span (for stat-card date ranges).
+    var spans: [FileKind: (oldest: Date, newest: Date)] = [:]
+    /// 30-day trend % per kind (bytes created last 30d vs prior 30d).
+    var trends: [FileKind: Double] = [:]
+    /// Bytes by created month "yyyy-MM" / day "yyyy-MM-dd".
+    var monthlyBytes: [String: Int64] = [:]
+    var dailyBytes: [String: Int64] = [:]
+    /// [year: [kind: bytes]] for the stacked bar chart.
+    var yearlyKind: [Int: [FileKind: Int64]] = [:]
 
     static let empty = FileAnalysis()
 
@@ -197,6 +206,37 @@ struct FileAnalysis: Sendable {
             let full = homeRoot + root
             a.byRoot[full] = files.filter { $0.path.hasPrefix(full == homeRoot ? homeRoot + "/" : full + "/") || $0.path == full }
                 .sorted { $0.modified > $1.modified }
+        }
+        // Time analytics, single pass over created dates.
+        let cal = Calendar.current
+        let now = Date()
+        let d30 = now.addingTimeInterval(-30 * 86400)
+        let d60 = now.addingTimeInterval(-60 * 86400)
+        var recent30: [FileKind: Int64] = [:]
+        var prior30: [FileKind: Int64] = [:]
+        for f in files {
+            let c = f.created
+            guard c.timeIntervalSince1970 > 0, c <= now else { continue }
+            if let s = a.spans[f.kind] {
+                a.spans[f.kind] = (min(s.oldest, c), max(s.newest, c))
+            } else {
+                a.spans[f.kind] = (c, c)
+            }
+            let comps = cal.dateComponents([.year, .month, .day], from: c)
+            if let y = comps.year, let m = comps.month {
+                let mk = String(format: "%04d-%02d", y, m)
+                a.monthlyBytes[mk, default: 0] += f.size
+                a.yearlyKind[y, default: [:]][f.kind, default: 0] += f.size
+                if let d = comps.day {
+                    a.dailyBytes[String(format: "%04d-%02d-%02d", y, m, d), default: 0] += f.size
+                }
+            }
+            if c >= d30 { recent30[f.kind, default: 0] += f.size }
+            else if c >= d60 { prior30[f.kind, default: 0] += f.size }
+        }
+        for k in FileKind.allCases {
+            let r = Double(recent30[k] ?? 0), p = Double(prior30[k] ?? 0)
+            a.trends[k] = p > 0 ? (r - p) / p * 100 : (r > 0 ? 100 : 0)
         }
         return a
     }
@@ -508,6 +548,14 @@ final class FilesIndexer: ObservableObject {
         }
         scored.sort { $0.1 > $1.1 }
         return scored.prefix(limit).map(\.0)
+    }
+
+    /// Volume capacity (live syscall, microseconds — safe per render).
+    func volumeInfo() -> (total: Int64, free: Int64) {
+        guard let a = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory()),
+              let t = (a[.systemSize] as? NSNumber)?.int64Value,
+              let f = (a[.systemFreeSize] as? NSNumber)?.int64Value else { return (0, 0) }
+        return (t, f)
     }
 
     // MARK: Icons (cached; rows must never touch disk per frame)

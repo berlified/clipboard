@@ -109,12 +109,12 @@ private struct FilesRootView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar.frame(width: 218)
-            Divider().background(.black.opacity(0.08))
+            Divider().background(.white.opacity(0.1))
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 1020, minHeight: 660)
         .background(Color(nsColor: .windowBackgroundColor))
-        .preferredColorScheme(.light)
+        .preferredColorScheme(.dark)
         .onAppear { indexer.scan() }
         .onChange(of: appliedQuery) { _, _ in selectedRow = 0 }
         .onChange(of: selection) { _, _ in selectedRow = 0 }
@@ -176,10 +176,49 @@ private struct FilesRootView: View {
                     sideItem(icon: "folder.fill", title: name, sel: .location(name: name, path: path), folder: true)
                 }
                 Spacer(minLength: 12)
+                storageMeter
             }
             .padding(.bottom, 12)
         }
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+    }
+
+    private var storageMeter: some View {
+        let v = indexer.volumeInfo()
+        let used = indexer.totalBytes
+        let frac = v.total > 0 ? min(1, Double(used) / Double(v.total)) : 0
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: "externaldrive.fill")
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                Text("Storage").font(.system(size: 13, weight: .semibold))
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(.white.opacity(0.12))
+                        .frame(height: 6)
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(LinearGradient(colors: [.green, .mint], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(4, geo.size.width * frac), height: 6)
+                }
+            }
+            .frame(height: 6)
+            Text("\(byteString(used)) of \(byteString(v.total)) used")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            Button("Free Up Space") { selection = .forgotten }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 7)
+                .background(.white, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .padding(10)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.1), lineWidth: 1)
+        }
+        .padding(.horizontal, 8)
     }
 
     private var cleanupBytes: Int64 {
@@ -216,7 +255,7 @@ private struct FilesRootView: View {
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 5)
-            .background(active ? .black.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 8))
+            .background(active ? .white.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 8))
             .padding(.horizontal, 8)
         }
         .buttonStyle(.plain)
@@ -255,11 +294,11 @@ private struct FilesRootView: View {
                         Text("⌘F").font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
+                            .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay { RoundedRectangle(cornerRadius: 10).stroke(.black.opacity(0.1), lineWidth: 1) }
+                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay { RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.14), lineWidth: 1) }
                     Spacer()
                     if indexer.scanning {
                         ProgressView().controlSize(.small)
@@ -279,6 +318,24 @@ private struct FilesRootView: View {
                         .font(.system(size: 13)).foregroundStyle(.secondary)
                 }
 
+                // Stat cards (Cloudy-style: size + trend + date span)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+                    StatCard(icon: "doc.text.fill", tint: kindColor(.document), label: "Documents",
+                             bytes: indexer.bytes(for: .document),
+                             trend: indexer.analysis.trends[.document] ?? 0,
+                             span: indexer.analysis.spans[.document])
+                    StatCard(icon: "photo.fill", tint: kindColor(.image), label: "Images",
+                             bytes: indexer.bytes(for: .image),
+                             trend: indexer.analysis.trends[.image] ?? 0,
+                             span: indexer.analysis.spans[.image])
+                    StatCard(icon: "video.fill", tint: kindColor(.video), label: "Videos",
+                             bytes: indexer.bytes(for: .video),
+                             trend: indexer.analysis.trends[.video] ?? 0,
+                             span: indexer.analysis.spans[.video])
+                    StatCard(icon: "folder.fill", tint: .gray, label: "Others",
+                             bytes: othersBytes, trend: othersTrend, span: othersSpan)
+                }
+
                 // Library
                 sectionHeader("Library", count: 6)
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
@@ -292,6 +349,9 @@ private struct FilesRootView: View {
                         }
                     }
                 }
+
+                // Storage bar (Cloudy-style volume breakdown)
+                StorageBarCard(indexer: indexer)
 
                 // Clean Up
                 HStack {
@@ -328,6 +388,13 @@ private struct FilesRootView: View {
                     }
                 }
 
+                // Charts + recent uploads (Cloudy-style analytics)
+                HStack(alignment: .top, spacing: 14) {
+                    ActivityCard(indexer: indexer).frame(maxWidth: .infinity)
+                    KindBarsCard(indexer: indexer).frame(width: 300)
+                }
+                RecentUploadsCard(indexer: indexer, open: { openFile($0) })
+
                 // Downloaded From
                 sectionHeader("Downloaded From", count: indexer.downloadSources().count)
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -355,12 +422,24 @@ private struct FilesRootView: View {
         }
     }
 
+    private var otherKinds: [FileKind] { [.music, .archive, .app, .other] }
+    private var othersBytes: Int64 { otherKinds.reduce(0) { acc, k in acc + indexer.bytes(for: k) } }
+    private var othersTrend: Double {
+        let ts = otherKinds.map { indexer.analysis.trends[$0] ?? 0 }
+        return ts.reduce(0, +) / Double(max(ts.count, 1))
+    }
+    private var othersSpan: (oldest: Date, newest: Date)? {
+        let spans = otherKinds.compactMap { indexer.analysis.spans[$0] }
+        guard !spans.isEmpty else { return nil }
+        return (spans.map(\.oldest).min()!, spans.map(\.newest).max()!)
+    }
+
     private func sectionHeader(_ title: String, count: Int) -> some View {
         HStack(spacing: 8) {
             Text(title).font(.system(size: 17, weight: .bold))
             Text("\(count)").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
                 .padding(.horizontal, 8).padding(.vertical, 2)
-                .background(.black.opacity(0.06), in: Capsule())
+                .background(.white.opacity(0.12), in: Capsule())
         }
     }
 
@@ -426,7 +505,7 @@ private struct FilesRootView: View {
                 Text(listTitle).font(.system(size: 17, weight: .bold))
                 Text("\(listResults.count)").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
                     .padding(.horizontal, 8).padding(.vertical, 2)
-                    .background(.black.opacity(0.06), in: Capsule())
+                    .background(.white.opacity(0.12), in: Capsule())
                 Spacer()
                 Picker("", selection: $sort) {
                     Text("Date").tag(ListSort.date)
@@ -436,7 +515,7 @@ private struct FilesRootView: View {
                 .pickerStyle(.segmented).frame(width: 200)
             }
             .padding(16)
-            Divider().background(.black.opacity(0.08))
+            Divider().background(.white.opacity(0.1))
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: true) {
                     LazyVStack(spacing: 1) {
@@ -510,7 +589,28 @@ private struct FilesRootView: View {
 
 private enum ListSort { case date, name, size }
 
-// MARK: - Folder card (pastel folder with tab + icon stack)
+// MARK: - Kind accents (charts, tabs, badges)
+
+private func kindColor(_ kind: FileKind) -> Color {
+    switch kind {
+    case .document: return Color(red: 0.2, green: 0.55, blue: 1.0)
+    case .image: return Color(red: 0.7, green: 0.4, blue: 0.95)
+    case .video: return Color(red: 0.25, green: 0.75, blue: 1.0)
+    case .music: return Color(red: 0.2, green: 0.8, blue: 0.45)
+    case .archive: return Color(red: 1.0, green: 0.65, blue: 0.2)
+    case .app: return Color(red: 1.0, green: 0.35, blue: 0.45)
+    case .other: return .gray
+    }
+}
+
+private func compactBytes(_ b: Double) -> String {
+    if b >= 1_000_000_000 { return String(format: "%.0fG", b / 1_000_000_000) }
+    if b >= 1_000_000 { return String(format: "%.0fM", b / 1_000_000) }
+    if b >= 1_000 { return String(format: "%.0fK", b / 1_000) }
+    return "\(Int(b))"
+}
+
+// MARK: - Folder card (dark body, kind-tinted tab, stacked-circle icons)
 
 private struct FolderCard: View {
     let kind: FileKind
@@ -520,47 +620,37 @@ private struct FolderCard: View {
     let icon: (IndexedFile) -> NSImage
     var action: () -> Void
 
-    private var pastel: Color {
-        switch kind {
-        case .image: return Color(red: 0.9, green: 0.88, blue: 0.96)
-        case .video: return Color(red: 0.85, green: 0.9, blue: 0.97)
-        case .music: return Color(red: 0.97, green: 0.89, blue: 0.83)
-        case .document: return Color(red: 0.85, green: 0.94, blue: 0.89)
-        case .archive: return Color(red: 0.97, green: 0.93, blue: 0.81)
-        case .app: return Color(red: 0.97, green: 0.85, blue: 0.89)
-        case .other: return Color(red: 0.92, green: 0.92, blue: 0.94)
-        }
-    }
-
     var body: some View {
         Button(action: action) {
             ZStack(alignment: .topLeading) {
                 // Tab
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(pastel.shadow(.inner(color: .black.opacity(0.06), radius: 4)))
+                    .fill(kindColor(kind).opacity(0.85))
                     .frame(width: 100, height: 34)
                     .offset(x: 14, y: 0)
                 // Body
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(pastel)
+                    .fill(.white.opacity(0.05))
                     .overlay {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(.black.opacity(0.06), lineWidth: 1)
+                            .stroke(.white.opacity(0.1), lineWidth: 1)
                     }
                     .padding(.top, 16)
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack {
+                    HStack(spacing: 8) {
+                        ZStack {
+                            Circle().fill(kindColor(kind).opacity(0.2)).frame(width: 30, height: 30)
+                            Image(systemName: kind.symbol)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(kindColor(kind))
+                        }
                         Spacer()
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 12, weight: .bold)).foregroundStyle(.secondary)
-                            .frame(width: 34, height: 22)
-                            .background(.white.opacity(0.7), in: Capsule())
                     }
                     .padding(.horizontal, 12).padding(.top, 24)
                     Text(kind.label)
                         .font(.system(size: 15, weight: .semibold))
-                        .padding(.horizontal, 14).padding(.top, 2)
-                    Divider().background(.black.opacity(0.12)).padding(.horizontal, 14).padding(.top, 8)
+                        .padding(.horizontal, 14).padding(.top, 6)
+                    Divider().background(.white.opacity(0.1)).padding(.horizontal, 14).padding(.top, 8)
                     HStack {
                         ThumbStackView(files: thumbs, icon: icon, total: count)
                         Spacer()
@@ -596,7 +686,7 @@ private struct ThumbStackView: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 26, height: 26)
                     .background(.white, in: Circle())
-                    .overlay { Circle().stroke(.black.opacity(0.08), lineWidth: 1) }
+                    .overlay { Circle().stroke(.white.opacity(0.1), lineWidth: 1) }
             }
         }
     }
@@ -618,7 +708,7 @@ private struct CleanupCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     ZStack {
-                        Circle().fill(.white.opacity(0.8)).frame(width: 36, height: 36)
+                        Circle().fill(iconTint.opacity(0.18)).frame(width: 36, height: 36)
                         Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(iconTint)
                     }
                     Spacer()
@@ -632,9 +722,9 @@ private struct CleanupCard: View {
                 }
             }
             .padding(14)
-            .background(tint, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.black.opacity(0.06), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(.white.opacity(0.1), lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
@@ -661,9 +751,9 @@ private struct SourceCard: View {
             }
             .padding(10)
             .frame(width: 210, alignment: .leading)
-            .background(.white, in: RoundedRectangle(cornerRadius: 12))
+            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
             .overlay {
-                RoundedRectangle(cornerRadius: 12).stroke(.black.opacity(0.08), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.12), lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
@@ -701,7 +791,7 @@ private struct FileRow: View {
             if let host = file.sourceHost {
                 Text(host).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
                     .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(.black.opacity(0.05), in: Capsule())
+                    .background(.white.opacity(0.12), in: Capsule())
             }
             VStack(alignment: .trailing, spacing: 1) {
                 Text(byteString(file.size)).font(.system(size: 12, weight: .medium))
@@ -715,6 +805,405 @@ private struct FileRow: View {
             if selected {
                 RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .controlAccentColor).opacity(0.5), lineWidth: 1)
             }
+        }
+    }
+}
+
+// MARK: - Storage analytics (Cloudy-style, dark)
+
+private struct StatCard: View {
+    let icon: String
+    let tint: Color
+    let label: String
+    let bytes: Int64
+    let trend: Double
+    let span: (oldest: Date, newest: Date)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 7) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 26, height: 26)
+                    .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 7))
+                Text(label).font(.system(size: 13, weight: .medium))
+                Spacer()
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(byteString(bytes)).font(.system(size: 22, weight: .bold))
+                Spacer()
+                HStack(spacing: 3) {
+                    Image(systemName: trend >= 0 ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
+                        .font(.system(size: 7))
+                    Text("\(trend >= 0 ? "+" : "")\(Int(trend.rounded()))%")
+                        .font(.system(size: 11, weight: .bold))
+                }
+                .foregroundStyle(trend >= 0 ? .green : .red)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background((trend >= 0 ? Color.green : Color.red).opacity(0.14), in: Capsule())
+            }
+            HStack(spacing: 5) {
+                Image(systemName: "calendar").font(.system(size: 10)).foregroundStyle(.tertiary)
+                Text(spanText).font(.system(size: 10.5)).foregroundStyle(.tertiary)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .padding(12)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(.white.opacity(0.1), lineWidth: 1)
+        }
+    }
+
+    private var spanText: String {
+        guard let span else { return "—" }
+        let f = DateFormatter()
+        f.dateFormat = "MMM dd, yyyy"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return "\(f.string(from: span.oldest)) - \(f.string(from: span.newest))"
+    }
+}
+
+private struct StorageBarCard: View {
+    @ObservedObject var indexer: FilesIndexer
+
+    private struct Seg { let label: String; let bytes: Int64; let color: Color }
+
+    var body: some View {
+        let v = indexer.volumeInfo()
+        let docs = indexer.bytes(for: .document)
+        let media = indexer.bytes(for: .image) + indexer.bytes(for: .video) + indexer.bytes(for: .music)
+        let apps = indexer.bytes(for: .app)
+        let rest = max(0, indexer.totalBytes - docs - media - apps)
+        let segs = [Seg(label: "Documents", bytes: docs, color: .blue),
+                    Seg(label: "Media", bytes: media, color: .yellow),
+                    Seg(label: "Apps", bytes: apps, color: .red),
+                    Seg(label: "Other files", bytes: rest, color: .gray)]
+        let total = max(v.total, 1)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("This Mac").font(.system(size: 14, weight: .bold))
+                    + Text(" Space's").font(.system(size: 14)).foregroundStyle(.secondary)
+                Spacer()
+                Text("Using \(byteString(indexer.totalBytes)) of \(byteString(v.total))")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            GeometryReader { geo in
+                HStack(spacing: 3) {
+                    ForEach(segs, id: \.label) { s in
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(s.color)
+                            .frame(width: max(s.bytes > 0 ? 3 : 0, geo.size.width * Double(s.bytes) / Double(total)))
+                    }
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(.white.opacity(0.1))
+                }
+            }
+            .frame(height: 16)
+            HStack(spacing: 14) {
+                ForEach(segs, id: \.label) { s in
+                    HStack(spacing: 5) {
+                        Circle().fill(s.color).frame(width: 8, height: 8)
+                        Text("\(s.label) (\(byteString(s.bytes)))")
+                            .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                    }
+                }
+                HStack(spacing: 5) {
+                    Circle().fill(.white.opacity(0.25)).frame(width: 8, height: 8)
+                    Text("Free space (\(byteString(v.free)))")
+                        .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                }
+            }
+            Text("Only indexed folders are counted. Free more with Clean Up below.")
+                .font(.system(size: 11.5)).foregroundStyle(.tertiary)
+        }
+        .padding(16)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(.white.opacity(0.1), lineWidth: 1)
+        }
+    }
+}
+
+private struct ActivityCard: View {
+    @ObservedObject var indexer: FilesIndexer
+    @State private var range = 0
+    private let tabs = ["12 Months", "30 Days", "7 Days"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Upload Activity").font(.system(size: 14, weight: .bold))
+                Spacer()
+                HStack(spacing: 0) {
+                    ForEach(Array(tabs.enumerated()), id: \.offset) { i, t in
+                        Button {
+                            range = i
+                        } label: {
+                            Text(t).font(.system(size: 11, weight: range == i ? .semibold : .regular))
+                                .foregroundStyle(range == i ? .white : .secondary)
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .background(range == i ? .white.opacity(0.16) : .clear, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(3)
+                .background(.white.opacity(0.06), in: Capsule())
+            }
+            LineChart(values: series.values, labels: series.labels)
+        }
+        .padding(16)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(.white.opacity(0.1), lineWidth: 1)
+        }
+    }
+
+    private var series: (values: [Double], labels: [String]) {
+        let cal = Calendar.current
+        let now = Date()
+        let monthFmt = DateFormatter()
+        monthFmt.dateFormat = "MMM"
+        if range == 0 {
+            var vals: [Double] = []
+            var labels: [String] = []
+            for i in stride(from: 11, through: 0, by: -1) {
+                guard let d = cal.date(byAdding: .month, value: -i, to: now) else { continue }
+                let c = cal.dateComponents([.year, .month], from: d)
+                let key = String(format: "%04d-%02d", c.year ?? 0, c.month ?? 0)
+                vals.append(Double(indexer.analysis.monthlyBytes[key] ?? 0))
+                labels.append(monthFmt.string(from: d))
+            }
+            return (vals, labels)
+        }
+        let days = range == 1 ? 30 : 7
+        let dayFmt = DateFormatter()
+        dayFmt.dateFormat = range == 1 ? "d" : "E"
+        var vals: [Double] = []
+        var labels: [String] = []
+        for i in stride(from: days - 1, through: 0, by: -1) {
+            guard let d = cal.date(byAdding: .day, value: -i, to: now) else { continue }
+            let c = cal.dateComponents([.year, .month, .day], from: d)
+            let key = String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+            vals.append(Double(indexer.analysis.dailyBytes[key] ?? 0))
+            labels.append(dayFmt.string(from: d))
+        }
+        return (vals, labels)
+    }
+}
+
+private struct LineChart: View {
+    let values: [Double]
+    let labels: [String]
+
+    var body: some View {
+        GeometryReader { geo in
+            let left: CGFloat = 34
+            let w = max(geo.size.width - left, 10)
+            let h: CGFloat = 150
+            let maxV = max(values.max() ?? 1, 1)
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    ForEach(0..<4, id: \.self) { i in
+                        HStack(spacing: 4) {
+                            Text(compactBytes(maxV * Double(3 - i) / 3))
+                                .font(.system(size: 9)).foregroundStyle(.tertiary)
+                                .frame(width: 30, alignment: .trailing)
+                            Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
+                        }
+                        if i < 3 { Spacer() }
+                    }
+                }
+                .frame(height: h)
+                .padding(.leading, 0)
+                chartPath(w: w, h: h, maxV: maxV)
+                    .offset(x: left)
+                chartFill(w: w, h: h, maxV: maxV)
+                    .offset(x: left)
+                xLabels(w: w, h: h)
+                    .offset(x: left)
+            }
+        }
+        .frame(height: 172)
+    }
+
+    private func pt(_ i: Int, w: CGFloat, h: CGFloat, maxV: Double) -> CGPoint {
+        let n = max(values.count - 1, 1)
+        let x = w * Double(i) / Double(n)
+        let y = h - 6 - (values[i] / maxV) * (h - 12)
+        return CGPoint(x: x, y: y)
+    }
+
+    private func chartPath(w: CGFloat, h: CGFloat, maxV: Double) -> some View {
+        Path { p in
+            guard !values.isEmpty else { return }
+            p.move(to: pt(0, w: w, h: h, maxV: maxV))
+            for i in 1..<values.count { p.addLine(to: pt(i, w: w, h: h, maxV: maxV)) }
+        }
+        .stroke(Color.blue, lineWidth: 1.5)
+    }
+
+    private func chartFill(w: CGFloat, h: CGFloat, maxV: Double) -> some View {
+        Path { p in
+            guard !values.isEmpty else { return }
+            p.move(to: CGPoint(x: pt(0, w: w, h: h, maxV: maxV).x, y: h))
+            p.addLine(to: pt(0, w: w, h: h, maxV: maxV))
+            for i in 1..<values.count { p.addLine(to: pt(i, w: w, h: h, maxV: maxV)) }
+            p.addLine(to: CGPoint(x: pt(values.count - 1, w: w, h: h, maxV: maxV).x, y: h))
+            p.closeSubpath()
+        }
+        .fill(LinearGradient(colors: [.blue.opacity(0.25), .clear], startPoint: .top, endPoint: .bottom))
+    }
+
+    private func xLabels(w: CGFloat, h: CGFloat) -> some View {
+        let stride = max(1, labels.count / 6)
+        return ZStack {
+            ForEach(Array(labels.enumerated()).filter { $0.offset % stride == 0 }, id: \.offset) { idx, lab in
+                let n = max(labels.count - 1, 1)
+                Text(lab).font(.system(size: 9)).foregroundStyle(.tertiary)
+                    .position(x: w * Double(idx) / Double(n), y: h + 12)
+            }
+        }
+        .frame(width: w, height: h + 22)
+    }
+}
+
+private struct KindBarsCard: View {
+    @ObservedObject var indexer: FilesIndexer
+    private let order: [FileKind] = [.document, .image, .video, .music, .app, .archive, .other]
+
+    var body: some View {
+        let years = Array(indexer.analysis.yearlyKind.keys.sorted().suffix(3))
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Storage by Kind").font(.system(size: 14, weight: .bold))
+            HStack(alignment: .bottom, spacing: 16) {
+                ForEach(years, id: \.self) { y in
+                    VStack(spacing: 5) {
+                        let segs = segments(year: y)
+                        let total = max(segs.reduce(0) { $0 + $1.1 }, 1)
+                        ZStack(alignment: .bottom) {
+                            RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.08))
+                                .frame(width: 44, height: 140)
+                            VStack(spacing: 0) {
+                                ForEach(segs.reversed(), id: \.0) { kind, bytes in
+                                    kindColor(kind)
+                                        .frame(width: 44, height: max(2, 140 * Double(bytes) / Double(total)))
+                                }
+                            }
+                            .frame(width: 44, height: 140, alignment: .bottom)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        Text("\(y)").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
+                if years.isEmpty {
+                    Text("No dated files yet.").font(.system(size: 12)).foregroundStyle(.tertiary)
+                        .frame(height: 140)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(order.filter { hasData($0, years: years) }, id: \.self) { k in
+                    HStack(spacing: 6) {
+                        Circle().fill(kindColor(k)).frame(width: 8, height: 8)
+                        Text(k.label).font(.system(size: 11)).foregroundStyle(.secondary)
+                        Spacer()
+                        Text(byteString(yearTotal(k, years: years)))
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(.white.opacity(0.1), lineWidth: 1)
+        }
+    }
+
+    private func segments(year: Int) -> [(FileKind, Int64)] {
+        let m = indexer.analysis.yearlyKind[year] ?? [:]
+        return order.compactMap { k in
+            let b = m[k] ?? 0
+            return b > 0 ? (k, b) : nil
+        }
+    }
+
+    private func hasData(_ k: FileKind, years: [Int]) -> Bool {
+        years.contains { (indexer.analysis.yearlyKind[$0]?[k] ?? 0) > 0 }
+    }
+
+    private func yearTotal(_ k: FileKind, years: [Int]) -> Int64 {
+        years.reduce(0) { $0 + (indexer.analysis.yearlyKind[$1]?[k] ?? 0) }
+    }
+}
+
+private struct RecentUploadsCard: View {
+    @ObservedObject var indexer: FilesIndexer
+    var open: (IndexedFile) -> Void
+
+    static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Recent Uploads").font(.system(size: 14, weight: .bold))
+                .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
+            HStack {
+                Text("Name").frame(maxWidth: .infinity, alignment: .leading)
+                Text("Source").frame(width: 150, alignment: .leading)
+                Text("Date").frame(width: 100, alignment: .leading)
+                Text("Size").frame(width: 90, alignment: .trailing)
+            }
+            .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+            .padding(.horizontal, 16).padding(.vertical, 7)
+            .background(.white.opacity(0.04))
+            ForEach(indexer.recents(limit: 8), id: \.id) { f in
+                RecentUploadRow(file: f, icon: indexer.fileIcon(f), open: open)
+            }
+        }
+        .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(.white.opacity(0.1), lineWidth: 1)
+        }
+    }
+}
+
+private struct RecentUploadRow: View {
+    let file: IndexedFile
+    let icon: NSImage
+    var open: (IndexedFile) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button { open(file) } label: {
+                HStack {
+                    Image(nsImage: icon)
+                        .resizable().aspectRatio(contentMode: .fit)
+                        .frame(width: 28, height: 28)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(file.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                        Text(file.kind.label).font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(file.sourceHost ?? "—").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                        .frame(width: 150, alignment: .leading)
+                    Text(RecentUploadsCard.dateFormatter.string(from: file.modified))
+                        .font(.system(size: 12)).frame(width: 100, alignment: .leading)
+                    Text(byteString(file.size)).font(.system(size: 12, weight: .medium))
+                        .frame(width: 90, alignment: .trailing)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 7)
+            }
+            .buttonStyle(.plain)
+            Divider().background(.white.opacity(0.06)).padding(.leading, 60)
         }
     }
 }
