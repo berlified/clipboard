@@ -109,6 +109,25 @@ func djb2(_ data: Data) -> UInt64 {
     return h
 }
 
+// MARK: - Pinboard
+
+/// A named collection (Paste-style pinboard tab). Entries can live on any
+/// number of boards *and* stay in Clipboard history at the same time.
+struct Board: Identifiable, Codable, Hashable {
+    var id: UUID
+    var name: String
+    /// Palette index into `Board.palette`.
+    var colorIndex: Int
+
+    /// macOS-tinted dot colors, Paste-style.
+    static let palette: [String] = [
+        "#FF3B30", "#FF9500", "#FFCC00", "#34C759",
+        "#00C7BE", "#0A84FF", "#BF5AF2", "#FF375F",
+    ]
+
+    var hex: String { Self.palette[colorIndex % Self.palette.count] }
+}
+
 // MARK: - Entry
 
 struct ClipboardEntry: Identifiable, Codable, Hashable {
@@ -125,17 +144,21 @@ struct ClipboardEntry: Identifiable, Codable, Hashable {
     var imageHeight: Int?
     var imageBytes: Int?
     var imageHash: UInt64?
+    /// Boards this entry is filed under (empty = Clipboard history only).
+    var boardIDs: [UUID]
 
     enum CodingKeys: String, CodingKey {
         case id, text, kind, date, firstDate, copies, pinned, sourceApp
         case imageFile, imageWidth, imageHeight, imageBytes, imageHash
+        case boardIDs
     }
 
     init(id: UUID = UUID(), text: String, kind: ClipKind? = nil, date: Date = Date(),
          firstDate: Date? = nil, copies: Int = 1, pinned: Bool = false,
          sourceApp: String = "Unknown", imageFile: String? = nil,
          imageWidth: Int? = nil, imageHeight: Int? = nil,
-         imageBytes: Int? = nil, imageHash: UInt64? = nil) {
+         imageBytes: Int? = nil, imageHash: UInt64? = nil,
+         boardIDs: [UUID] = []) {
         self.id = id
         self.text = text
         self.kind = kind ?? detectKind(text)
@@ -149,6 +172,7 @@ struct ClipboardEntry: Identifiable, Codable, Hashable {
         self.imageHeight = imageHeight
         self.imageBytes = imageBytes
         self.imageHash = imageHash
+        self.boardIDs = boardIDs
     }
 
     init(from decoder: Decoder) throws {
@@ -171,6 +195,7 @@ struct ClipboardEntry: Identifiable, Codable, Hashable {
         imageHeight = try c.decodeIfPresent(Int.self, forKey: .imageHeight)
         imageBytes = try c.decodeIfPresent(Int.self, forKey: .imageBytes)
         imageHash = try c.decodeIfPresent(UInt64.self, forKey: .imageHash)
+        boardIDs = try c.decodeIfPresent([UUID].self, forKey: .boardIDs) ?? []
     }
 
     /// Single-line list title.
@@ -215,11 +240,13 @@ struct ClipboardEntry: Identifiable, Codable, Hashable {
 @MainActor
 final class ClipboardManager: ObservableObject {
     @Published private(set) var entries: [ClipboardEntry] = []
+    @Published private(set) var boards: [Board] = []
     @Published var paused: Bool = false
 
     private var lastChangeCount: Int
     private var timer: Timer?
     private let saveURL: URL
+    private let boardsURL: URL
     private let imagesDir: URL
     private let maxEntries = 100
 
@@ -236,6 +263,7 @@ final class ClipboardManager: ObservableObject {
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         saveURL = base.appendingPathComponent("Aura/clipboard.json", isDirectory: false)
+        boardsURL = base.appendingPathComponent("Aura/boards.json", isDirectory: false)
         imagesDir = base.appendingPathComponent("Aura/images", isDirectory: true)
         try? FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
         // Force first poll to inspect the current clipboard contents.
@@ -457,6 +485,44 @@ final class ClipboardManager: ObservableObject {
         save()
     }
 
+    // MARK: Pinboards
+
+    /// Entries for a tab: nil = Clipboard (everything), otherwise board members.
+    func entries(for board: Board?) -> [ClipboardEntry] {
+        guard let board else { return entries }
+        return entries.filter { $0.boardIDs.contains(board.id) }
+    }
+
+    func addBoard(name: String, colorIndex: Int) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        boards.append(Board(id: UUID(), name: String(name.prefix(24)), colorIndex: colorIndex))
+        saveBoards()
+    }
+
+    func deleteBoard(_ board: Board) {
+        boards.removeAll { $0.id == board.id }
+        for i in entries.indices {
+            entries[i].boardIDs.removeAll { $0 == board.id }
+        }
+        saveBoards()
+        save()
+    }
+
+    func toggleBoard(_ entry: ClipboardEntry, _ board: Board) {
+        guard let i = entries.firstIndex(where: { $0.id == entry.id }) else { return }
+        if entries[i].boardIDs.contains(board.id) {
+            entries[i].boardIDs.removeAll { $0 == board.id }
+        } else {
+            entries[i].boardIDs.append(board.id)
+        }
+        save()
+    }
+
+    func boardNames(for entry: ClipboardEntry) -> [String] {
+        boards.filter { entry.boardIDs.contains($0.id) }.map(\.name)
+    }
+
     // MARK: Persistence (local JSON, private by design)
 
     private func trim() {
@@ -491,6 +557,28 @@ final class ClipboardManager: ObservableObject {
             sortEntries()
         } catch {
             entries = []
+        }
+        do {
+            let data = try Data(contentsOf: boardsURL)
+            boards = try JSONDecoder().decode([Board].self, from: data)
+        } catch {
+            // First launch: seed Paste-style starter boards.
+            boards = [
+                Board(id: UUID(), name: "Useful Links", colorIndex: 0),
+                Board(id: UUID(), name: "Important Notes", colorIndex: 2),
+                Board(id: UUID(), name: "Code Snippets", colorIndex: 5),
+            ]
+            saveBoards()
+        }
+    }
+
+    private func saveBoards() {
+        do {
+            try FileManager.default.createDirectory(at: boardsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(boards)
+            try data.write(to: boardsURL, options: .atomic)
+        } catch {
+            // Non-fatal.
         }
     }
 }

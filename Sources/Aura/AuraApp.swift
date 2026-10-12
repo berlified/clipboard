@@ -30,8 +30,17 @@ extension Notification.Name {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var panel: LauncherPanel!
+    private var railPanel: NSPanel!
+    private var flyoutPanel: LauncherPanel!
     private var statusItem: NSStatusItem!
+    private var railShown = false
+    private var autohide: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: "aura.railAutohide") == nil { return true }
+            return UserDefaults.standard.bool(forKey: "aura.railAutohide")
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "aura.railAutohide") }
+    }
 
     // Single source of truth: Samsung-style store (every ⌘C lands here).
     private var clipboard: ClipboardManager!
@@ -44,44 +53,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         clipboard = ClipboardManager()
 
-        setupPanel()
+        setupRail()
+        setupFlyout()
         setupMenuBar()
         registerHotKey()
         observeOutsideClicks()
         setupSelectionBubble()
+        startEdgeAutohide()
 
-        show()
+        // Dock-style: rail (or its sliver) is home. No flyout at launch.
+        placeRail(animated: false)
+        if !autohide { showRail(animated: false) }
     }
 
-    // MARK: Panel
+    // MARK: Rail (left-edge dock)
 
-    private func setupPanel() {
-        let rect = NSRect(x: 0, y: 0, width: 940, height: 620)
-        panel = LauncherPanel(
-            contentRect: rect,
+    private let railSize = NSSize(width: 96, height: 640)
+    private let flyoutSize = NSSize(width: 380, height: 560)
+
+    private func setupRail() {
+        railPanel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: railSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = false
-        panel.hidesOnDeactivate = false
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isMovableByWindowBackground = true
-        panel.animationBehavior = .utilityWindow
+        railPanel.isFloatingPanel = true
+        railPanel.level = .floating
+        railPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        railPanel.backgroundColor = .clear
+        railPanel.isOpaque = false
+        railPanel.hasShadow = false
+        railPanel.hidesOnDeactivate = false
 
-        let view = HistoryWindowView(
+        let view = DockRailView(
             clipboard: clipboard,
-            onPaste: { [weak self] in self?.hide() },
-            onEscape: { [weak self] in self?.hide() }
+            onLogo: { [weak self] in self?.toggleFlyout() },
+            onSearch: { [weak self] in self?.showFlyout() },
+            onClear: { [weak self] in self?.clipboard.clearUnpinned() },
+            onPaste: { [weak self] entry in self?.clipboard.copyAndPaste(entry) },
+            onPin: { [weak self] entry in self?.clipboard.togglePin(entry) },
+            onDelete: { [weak self] entry in self?.clipboard.delete(entry) },
+            onCopy: { [weak self] entry in self?.clipboard.copyOnly(entry) },
+            onToggleBoard: { [weak self] entry, board in self?.clipboard.toggleBoard(entry, board) }
         )
-        panel.contentView = NSHostingView(rootView: view)
-        panel.center()
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(origin: .zero, size: railSize)
+        railPanel.contentView = host
+    }
+
+    private func setupFlyout() {
+        flyoutPanel = LauncherPanel(
+            contentRect: NSRect(origin: .zero, size: flyoutSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        flyoutPanel.isFloatingPanel = true
+        flyoutPanel.level = .floating
+        flyoutPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        flyoutPanel.backgroundColor = .clear
+        flyoutPanel.isOpaque = false
+        flyoutPanel.hasShadow = false
+        flyoutPanel.hidesOnDeactivate = false
+        flyoutPanel.animationBehavior = .utilityWindow
+
+        let view = DockFlyoutView(
+            clipboard: clipboard,
+            onPaste: { [weak self] in self?.hideFlyout() },
+            onEscape: { [weak self] in self?.hideFlyout() }
+        )
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(origin: .zero, size: flyoutSize)
+        flyoutPanel.contentView = host
     }
 
     // MARK: Selection bubble ("Save to Aura" on any text selection)
@@ -94,8 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         selectionMonitor = SelectionMonitor()
         selectionMonitor.onSelection = { [weak self] text in
             guard let self else { return }
-            // Don't fight the history panel.
-            if self.panel.isVisible { return }
+            // Don't fight the flyout.
+            if self.flyoutPanel.isVisible { return }
             self.bubble.show(for: text)
         }
         selectionMonitor.onClear = { [weak self] in
@@ -125,6 +169,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pauseItem = NSMenuItem(title: "Pause Aura", action: #selector(togglePause), keyEquivalent: "")
         pauseItem.target = self
         menu.addItem(pauseItem)
+        autohideItem = NSMenuItem(title: "Autohide rail", action: #selector(toggleAutohide), keyEquivalent: "")
+        autohideItem.target = self
+        autohideItem.state = autohide ? .on : .off
+        menu.addItem(autohideItem)
         menu.addItem(NSMenuItem(title: "Enable select-to-save bubble…", action: #selector(openAccessibility), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Aura", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -132,6 +180,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var pauseItem = NSMenuItem()
+    private var autohideItem = NSMenuItem()
+
+    @objc private func toggleAutohide() {
+        autohide.toggle()
+        autohideItem.state = autohide ? .on : .off
+        if autohide { hideRail(animated: true) } else { showRail(animated: true) }
+    }
 
     @objc private func togglePause() {
         clipboard.paused.toggle()
@@ -142,22 +197,124 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showFromMenu() { show() }
 
-    // MARK: Show / hide
+    // MARK: Show / hide (rail + flyout)
 
-    func toggle() {
-        if panel.isVisible { hide() } else { show() }
+    func toggle() { toggleFlyout() }
+
+    func show() { showFlyout() }
+
+    func hide() { hideFlyout() }
+
+    private var flyoutVisible: Bool { flyoutPanel.isVisible }
+
+    private func toggleFlyout() {
+        if flyoutVisible { hideFlyout() } else { showFlyout() }
     }
 
-    func show() {
+    private func showFlyout() {
         bubble?.hide()
-        panel.center()
+        showRail(animated: true)
+        placeFlyout()
         NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
-        panel.orderFrontRegardless()
+        flyoutPanel.makeKeyAndOrderFront(nil)
+        flyoutPanel.orderFrontRegardless()
     }
 
-    func hide() {
-        panel.orderOut(nil)
+    private func hideFlyout() {
+        flyoutPanel.orderOut(nil)
+    }
+
+    // MARK: Rail placement + Dock-style edge autohide
+
+    private func activeScreen() -> NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
+            ?? NSScreen.main
+    }
+
+    private func railShownOrigin(on screen: NSScreen) -> NSPoint {
+        let f = screen.visibleFrame
+        return NSPoint(x: f.minX + 8, y: f.midY - railSize.height / 2)
+    }
+
+    private func railHiddenOrigin(on screen: NSScreen) -> NSPoint {
+        let f = screen.visibleFrame
+        return NSPoint(x: f.minX - railSize.width + 6, y: f.midY - railSize.height / 2)
+    }
+
+    private func placeRail(animated: Bool) {
+        guard let screen = activeScreen() else { return }
+        let origin = railShown || !autohide ? railShownOrigin(on: screen) : railHiddenOrigin(on: screen)
+        setOrigin(of: railPanel, to: origin, animated: animated)
+        if railShown || !autohide {
+            railPanel.orderFrontRegardless()
+        } else if !railPanel.isVisible {
+            railPanel.orderFrontRegardless() // sliver must stay hittable
+        }
+    }
+
+    private func showRail(animated: Bool) {
+        railShown = true
+        guard let screen = activeScreen() else { return }
+        setOrigin(of: railPanel, to: railShownOrigin(on: screen), animated: animated)
+        railPanel.orderFrontRegardless()
+    }
+
+    private func hideRail(animated: Bool) {
+        railShown = false
+        guard autohide, let screen = activeScreen() else { return }
+        setOrigin(of: railPanel, to: railHiddenOrigin(on: screen), animated: animated)
+    }
+
+    private func setOrigin(of window: NSWindow, to origin: NSPoint, animated: Bool) {
+        var frame = window.frame
+        frame.origin = origin
+        if animated {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.22
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                window.animator().setFrame(frame, display: true)
+            }
+        } else {
+            window.setFrame(frame, display: true)
+        }
+    }
+
+    private func placeFlyout() {
+        guard let screen = activeScreen() else { return }
+        let f = screen.visibleFrame
+        var x = railPanel.frame.maxX + 8
+        if x + flyoutSize.width > f.maxX - 8 { x = f.maxX - flyoutSize.width - 8 }
+        let y = max(f.minY + 20, min(f.midY - flyoutSize.height / 2, f.maxY - flyoutSize.height - 20))
+        flyoutPanel.setFrame(NSRect(x: x, y: y, width: flyoutSize.width, height: flyoutSize.height), display: false)
+    }
+
+    private func startEdgeAutohide() {
+        Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.autohideTick() }
+        }
+    }
+
+    private func autohideTick() {
+        guard autohide else { return }
+        let mouse = NSEvent.mouseLocation
+        if flyoutVisible {
+            // Flyout owns the screen; rail stays put while it's open.
+            return
+        }
+        if !railShown {
+            // 3px hot edge, like the Dock.
+            let edge = activeScreen()?.visibleFrame.minX ?? 0
+            if mouse.x <= edge + 3 {
+                showRail(animated: true)
+            }
+            return
+        }
+        // Generous grab area so moving toward the rail doesn't dismiss it.
+        let grab = railPanel.frame.insetBy(dx: -80, dy: -60)
+        if !grab.contains(mouse) {
+            hideRail(animated: true)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -169,12 +326,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func observeOutsideClicks() {
         NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            guard let self, self.panel.isVisible else { return }
-            // If the click is on our own panel, AppKit still reports it globally;
-            // check mouse location against panel frame.
+            guard let self, self.flyoutPanel.isVisible else { return }
+            // Clicks on rail or flyout don't dismiss; anything else does.
             let mouse = NSEvent.mouseLocation
-            if !self.panel.frame.contains(mouse) {
-                DispatchQueue.main.async { self.hide() }
+            if !self.flyoutPanel.frame.contains(mouse) && !self.railPanel.frame.contains(mouse) {
+                DispatchQueue.main.async { self.hideFlyout() }
             }
         }
     }
