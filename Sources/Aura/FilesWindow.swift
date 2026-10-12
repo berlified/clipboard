@@ -1,5 +1,42 @@
 import AppKit
+import Quartz
 import SwiftUI
+
+// MARK: - Quick Look (Space on a row, like Finder)
+
+/// System Quick Look panel driven by file URLs. Zero rendering code of ours.
+/// Unisolated with a lock: QL data-source callbacks arrive outside Swift
+/// actors, so this class stays off @MainActor and guards its one field.
+final class QuickLooker: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDelegate, @unchecked Sendable {
+    static let shared = QuickLooker()
+    private let lock = NSLock()
+    private var _current: String?
+    private var current: String? {
+        get { lock.withLock { _current } }
+        set { lock.withLock { _current = newValue } }
+    }
+
+    @MainActor
+    func toggle(_ file: IndexedFile) {
+        guard let panel = QLPreviewPanel.shared() else { return }
+        if panel.isVisible, current == file.path {
+            panel.orderOut(nil)
+            current = nil
+            return
+        }
+        current = file.path
+        panel.dataSource = self
+        panel.delegate = self
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int { current == nil ? 0 : 1 }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+        guard let current else { return nil }
+        return URL(fileURLWithPath: current) as NSURL
+    }
+}
 
 // MARK: - Files window: Homy-style storage browser (light, Apple-native)
 
@@ -59,6 +96,7 @@ private struct FilesRootView: View {
     @State private var search: String = ""
     /// Debounced filter text: heavy fuzzy matching runs at most ~7×/s while typing.
     @State private var appliedQuery: String = ""
+    @FocusState private var searchFocused: Bool
     @State private var sort: ListSort = .date
     @State private var selectedRow: Int = 0
 
@@ -206,6 +244,7 @@ private struct FilesRootView: View {
                         Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(.secondary)
                         TextField("", text: $search, prompt: Text("Search, or try \"pdfs from last week\"…").foregroundColor(.secondary))
                             .font(.system(size: 13)).textFieldStyle(.plain)
+                            .focused($searchFocused)
                             .frame(width: 250)
                             .onSubmit {
                                 if !search.isEmpty {
@@ -342,8 +381,7 @@ private struct FilesRootView: View {
         case .downloaded: return indexer.files.filter { $0.sourceHost != nil }.sorted { $0.modified > $1.modified }
         case .source(let host): return indexer.files.filter { $0.sourceHost == host }.sorted { $0.modified > $1.modified }
         case .location(_, let path):
-            return indexer.allEntries.filter { $0.path.hasPrefix(path.hasSuffix("/") ? path : path + "/") }
-                .sorted { $0.modified > $1.modified }
+            return indexer.analysis.byRoot[path] ?? []
         case .searchAll: return indexer.allEntries
         }
     }
@@ -411,6 +449,7 @@ private struct FilesRootView: View {
                                 .onTapGesture(count: 2) { openFile(f) }
                                 .contextMenu {
                                     Button("Open") { openFile(f) }
+                                    Button("Quick Look (Space)") { QuickLooker.shared.toggle(f) }
                                     Button("Reveal in Finder") { revealFile(f) }
                                     Button("Copy Path") {
                                         NSPasteboard.general.clearContents()
@@ -436,6 +475,17 @@ private struct FilesRootView: View {
         .onKeyPress(.upArrow) { moveRow(-1); return .handled }
         .onKeyPress(.downArrow) { moveRow(1); return .handled }
         .onKeyPress(.return) { openSelected(); return .handled }
+        .onKeyPress(keys: [" "], phases: .down) { _ in
+            // Space = Quick Look, Finder-style — but never while typing.
+            guard !searchFocused else { return .ignored }
+            quickLookSelected()
+            return .handled
+        }
+    }
+
+    private func quickLookSelected() {
+        guard !listResults.isEmpty, selectedRow < listResults.count else { return }
+        QuickLooker.shared.toggle(listResults[selectedRow])
     }
 
     private func moveRow(_ d: Int) {

@@ -148,6 +148,9 @@ struct FileAnalysis: Sendable {
     var unused: [IndexedFile] = []
     var sources: [DownloadSource] = []
     var dupExtraBytes: Int64 = 0
+    var bytesTotal: Int64 = 0
+    /// Pre-grouped by the Locations roots the UI actually queries.
+    var byRoot: [String: [IndexedFile]] = [:]
 
     static let empty = FileAnalysis()
 
@@ -188,6 +191,13 @@ struct FileAnalysis: Sendable {
         }
         a.sources = agg.map { DownloadSource(host: $0.key, count: $0.value.count, bytes: $0.value.bytes) }
             .sorted { $0.bytes > $1.bytes }
+        a.bytesTotal = files.reduce(0) { $0 + $1.size } + apps.reduce(0) { $0 + $1.size }
+        let homeRoot = NSHomeDirectory()
+        for root in ["", "/Desktop", "/Documents", "/Downloads", "/Pictures", "/Movies", "/Music"] {
+            let full = homeRoot + root
+            a.byRoot[full] = files.filter { $0.path.hasPrefix(full == homeRoot ? homeRoot + "/" : full + "/") || $0.path == full }
+                .sorted { $0.modified > $1.modified }
+        }
         return a
     }
 
@@ -436,9 +446,7 @@ final class FilesIndexer: ObservableObject {
 
     // MARK: Derived — all reads hit the cached analysis (O(1)-ish, no I/O)
 
-    var totalBytes: Int64 {
-        files.reduce(0) { $0 + $1.size } + apps.reduce(0) { $0 + $1.size }
-    }
+    var totalBytes: Int64 { analysis.bytesTotal }
 
     func count(for kind: FileKind) -> Int {
         analysis.counts[kind] ?? 0

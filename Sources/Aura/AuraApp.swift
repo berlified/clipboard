@@ -148,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "clipboard.fill", accessibilityDescription: "Aura Clipboard")
+            button.image = Self.menuBarIcon()
         }
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Open Aura  (⌃Space)", action: #selector(showFromMenu), keyEquivalent: ""))
@@ -170,6 +170,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openAccessibility() { AccessibilityPermission.prompt() }
+
+    /// Pretty menu-bar mark, drawn once: blue→teal squircle + white folder.
+    nonisolated static func menuBarIcon() -> NSImage {
+        let s: CGFloat = 22
+        let img = NSImage(size: NSSize(width: s, height: s))
+        img.lockFocus()
+        let rect = NSRect(x: 2, y: 2, width: s - 4, height: s - 4)
+        let bg = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
+        NSGraphicsContext.saveGraphicsState()
+        bg.setClip()
+        let grad = NSGradient(colors: [NSColor.systemBlue, NSColor.systemTeal])!
+        grad.draw(in: rect, angle: -45)
+        NSGraphicsContext.restoreGraphicsState()
+        if let glyph = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "Aura") {
+            let tinted = NSImage(size: glyph.size)
+            tinted.lockFocus()
+            let r = NSRect(origin: .zero, size: glyph.size)
+            glyph.draw(in: r, from: NSZeroRect, operation: .copy, fraction: 1.0)
+            NSColor.white.setFill()
+            r.fill(using: .sourceIn)
+            tinted.unlockFocus()
+            let gw: CGFloat = 12
+            let gh = gw * glyph.size.height / glyph.size.width
+            tinted.draw(in: NSRect(x: (s - gw) / 2, y: (s - gh) / 2 - 0.5, width: gw, height: gh),
+                        from: NSZeroRect, operation: .sourceOver, fraction: 1.0)
+        }
+        img.unlockFocus()
+        img.isTemplate = false
+        return img
+    }
 
     @objc private func showFromMenu() { show() }
 

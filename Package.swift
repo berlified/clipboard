@@ -7,7 +7,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Aura",
-            path: "Sources/Aura"
+            path: "Sources/Aura",
+            linkerSettings: [
+                .linkedFramework("Quartz"),
+            ]
         )
     ]
 )

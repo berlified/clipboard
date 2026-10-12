@@ -357,11 +357,18 @@ final class LauncherModel: ObservableObject {
 
     init(clipboard: ClipboardManager = ClipboardManager()) {
         self.clipboard = clipboard
-        allItems = builtinCommands() + scannedApps()
+        // Builtins paint instantly; the /Applications walk lands async.
+        allItems = builtinCommands()
+        Task { await self.loadApps() }
         // Refresh results when clipboard history changes (new copy while open).
         clipboard.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+    }
+
+    private func loadApps() async {
+        let found = await Task.detached(priority: .utility) { scannedApps() }.value
+        allItems = builtinCommands() + found
     }
 
     /// Dedicated clipboard mode: query starts with "clip".
