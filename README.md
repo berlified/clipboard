@@ -1,77 +1,74 @@
-# Aura — Samsung-style clipboard manager for Mac
+# Aura — Raycast-style launcher, clipboard manager & file search for Mac
 
-Aura is **only** a clipboard manager. No launcher, no fluff.
+Native Swift (SwiftUI + AppKit), Swift Package Manager, no Xcode project needed.
 
-- **Normal `⌘C` just works** — every copy (text, links, emails, **images**, colors) is auto-saved into history, like the Samsung keyboard clipboard.
-- **Select any sentence anywhere** → a small **✨ Save to Aura** pill pops up next to your cursor → one click pins it forever.
-- **`⌃Space`** opens the dark two-pane history window → search → `⏎` pastes it back into whatever app you were in.
+- **`⌃Space`** → floating launcher: fuzzy app launching, calculator, system actions, clipboard history (`clip`), Google fallback.
+- **`⌘C` just works** — every copy (text, links, emails, images, colors, code) is auto-saved into history, Samsung-keyboard style.
+- **Select text anywhere** → ✨ Save to Aura pill → one click pins it forever.
+- **`files`** → storage & file browser: Homy-style dashboard (Library folders, Clean Up, Downloaded From) over a real background index of your Mac.
 
 ![stack](https://img.shields.io/badge/Swift-6.2-orange) ![platform](https://img.shields.io/badge/macOS-14%2B-blue)
 
-## The window
+## Launcher
 
-Dark, two-pane, ClipBook-style:
+Centered 680×442 blur panel, `↑↓ ⏎ esc`, recents on empty query, click-outside hides.
 
-- **Toolbar** — search field, Paste-to-app, Copy, Pause/Resume, ★ favorites-only filter.
-- **Left: history list** — type icons per row (doc / link / envelope / color dot / image thumbnail), single-line titles (`Image (1456x1074)` for images), ★ to favorite. Hover a row to reveal its star.
-- **Right: preview + metadata**
-  - Text → full selectable text; links get an Open button.
-  - Images → large preview + dimensions + file size.
-  - Colors (`#65a30d`, `rgb(255 100 3)`, `hsl(330 100% 50%)`) → swatch + HEX / RGB / HSL rows, each with its own copy button.
-  - Metadata block: source app (with icon), type, number of copies, first/last copy time.
-- **Status bar** — `↑↓` navigate, `⏎ Paste to <live frontmost app>`, `⌘K` hint, last copy time, Clear (keeps ★ favorites).
+| Type this | Get this |
+|---|---|
+| `safari`, `term`… | Fuzzy apps with real icons |
+| `12*34`, `50%*200` | Calculator → `⏎` copies |
+| `dark mode`, `lock`… | System actions |
+| `clip`, `clip foo` | Clipboard history search |
+| `files`, `files pdf` | **Files window**, optionally pre-searched |
+| anything else | Search Google for it |
 
-Everything stays local in `~/Library/Application Support/Aura/` (`clipboard.json` + `images/`). Password managers (1Password, Bitwarden, Keychain…) are never recorded.
+## Clipboard
+
+Local JSON store in `~/Library/Application Support/Aura/` (never leaves your Mac; 1Password/Bitwarden/Keychain never recorded). Images persist as PNGs. `⏎` on a clip copies back and auto-pastes (`⌘V` synthesized — wants Accessibility, else paste manually).
+
+## `files` — storage & file search (the main event)
+
+Sidebar (Home, Recents, Images/Videos/Music/Documents/Archives/Apps with live counts, Large Files, Screenshots, Duplicates + reclaimable size, Clean Up total, Downloaded From, real Locations), dashboard (greeting, `N files · X across your Mac`, global search, Refresh, pastel Library folder cards with icon stacks, Clean Up cards with big reclaim numbers, Downloaded From row), and sortable file lists (`↑↓ ⏎`, double-click opens, right-click Reveal/Copy Path).
+
+How it works: background indexer walks Desktop/Documents/Downloads/Pictures/Movies/Music + `/Applications`, skipping packages, symlinks and dev cruft (`node_modules`, `.git`, `dist`…). Duplicates are confirmed with partial SHA-256 (no full reads of huge videos), download sources come from `com.apple.metadata:kMDItemWhereFroms`, unused apps from last-access time. Headless check: `./.build/release/Aura --files-scan` prints a JSON summary.
 
 ## Select-to-save bubble
 
-Select text in any app → the **✨ Save to Aura** pill appears under the cursor → click → `Saved ✓` → the text is **pinned** in history. Needs **Accessibility permission** (macOS only shares other apps' selected text with it):
-
-1. Launch Aura — it asks once on first run, or use menu bar 📋 → `Enable select-to-save bubble…`.
-2. Without it, auto-capture + history still work; only the bubble sleeps.
+Needs **Accessibility** (macOS only shares other apps' selected text with it): launch prompts once, or menu bar 📋 → `Enable select-to-save bubble…`. Without it, capture + history still work; only the bubble sleeps.
 
 ## Hotkey
 
-Single global hotkey: **`⌃Space`** (Carbon, no permission needed for the hotkey itself). `esc` or click-outside hides.
-
-⚠️ **macOS steals `⌃Space` by default** (`Input Sources → Select the previous input source`). If nothing happens: `System Settings → Keyboard → Shortcuts → Input Sources` → uncheck it → relaunch Aura.
-
-`⏎`-to-paste synthesizes `⌘V` (wants Accessibility; otherwise it copies and you paste manually).
+**`⌃Space`** globally (Carbon, no permission needed). ⚠️ macOS steals it for Input Sources by default: `Settings → Keyboard → Shortcuts → Input Sources` → uncheck → relaunch Aura.
 
 ## Run it
-
-Only Command Line Tools needed (no full Xcode).
 
 ```bash
 git clone https://github.com/berlified/clipboard.git
 cd clipboard
-
-# dev run (window appears, terminal blocks — Ctrl+C to stop)
-swift run
-
-# or background / release
-swift build -c release
-./.build/release/Aura &
+swift run                        # dev (blocks; Ctrl+C to stop)
+swift build -c release && ./.build/release/Aura &   # background
 ```
 
-Menu bar 📋 → `Pause Aura` / `Quit Aura`.
+Menu bar 📋 → Files… / Pause / Quit.
 
 ## Code map
 
 ```
 Package.swift               # swift-tools 6.0, macOS 14+, executable "Aura"
 Sources/Aura/
-  AuraApp.swift             # accessory app, shared ClipboardManager, ⌃Space, menu bar, bubble wiring
-  ClipboardManager.swift    # pasteboard polling, image/color capture, search, paste, local JSON store
-  HistoryWindowView.swift   # the two-pane window (toolbar, list, preview+metadata, status bar)
-  SelectionMonitor.swift    # AX selected-text polling (stable-selection detection, no key logging)
-  SaveBubble.swift          # non-activating floating pill (Save to Aura → Saved ✓)
-  Model.swift               # shared fuzzy matcher
+  AuraApp.swift             # accessory app, ⌃Space, menu bar, bubble + files wiring
+  LauncherView.swift        # the floating launcher UI
+  Model.swift               # items, fuzzy search, calculator, apps scan, execution
+  ClipboardManager.swift    # pasteboard capture (text/image/color/code), search, paste, JSON store
+  FilesIndexer.swift        # background file index, dups, sources, search
+  FilesWindow.swift         # Files dashboard + lists + window controller
+  SelectionMonitor.swift    # AX selected-text polling (no key logging)
+  SaveBubble.swift          # non-activating "Save to Aura" pill
 ```
 
 ## Troubleshooting
 
-- Bubble never appears → Accessibility off (see above).
-- `⌃Space` does nothing → Input Sources conflict (see above).
+- `⌃Space` does nothing → Input Sources conflict (above).
+- Bubble never appears → Accessibility off.
 - Copies but doesn't paste → Accessibility off; `⌘V` manually.
-- History empty after copy → password fields and password managers are intentionally skipped.
+- Files window empty at first → it's still scanning (progress shows top-right); hit Refresh.

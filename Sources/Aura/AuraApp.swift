@@ -38,13 +38,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var launcherModel: LauncherModel!
     private var selectionMonitor: SelectionMonitor!
     private var bubble: SaveBubbleController!
+    private var filesIndexer: FilesIndexer!
+    private var filesController: FilesWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Headless test hook: scan the Mac and print JSON, then quit.
+        if CommandLine.arguments.contains("--files-scan") {
+            let indexer = FilesIndexer()
+            Task { @MainActor in
+                await indexer.runScan()
+                let summary = indexer.scanSummary()
+                let data = (try? JSONEncoder().encode(summary)) ?? Data()
+                print(String(data: data, encoding: .utf8) ?? "{}")
+                NSApp.terminate(nil)
+            }
+            return
+        }
+
         sharedDelegate = self
         NSApp.setActivationPolicy(.accessory)
 
         clipboard = ClipboardManager()
         launcherModel = LauncherModel(clipboard: clipboard)
+        launcherModel.onOpenFiles = { [weak self] q in self?.openFiles(initial: q) }
+        filesIndexer = FilesIndexer()
 
         setupPanel()
         setupMenuBar()
@@ -54,6 +71,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         show()
     }
+
+    // MARK: Files window
+
+    func openFiles(initial query: String? = nil) {
+        if filesController == nil {
+            filesController = FilesWindowController(indexer: filesIndexer)
+        }
+        filesController?.show(initialQuery: query)
+    }
+
+    @objc private func openFilesFromMenu() { openFiles() }
 
     // MARK: Raycast-style floating panel
 
@@ -124,6 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Open Aura  (⌃Space)", action: #selector(showFromMenu), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Files…", action: #selector(openFilesFromMenu), keyEquivalent: ""))
         pauseItem = NSMenuItem(title: "Pause Aura", action: #selector(togglePause), keyEquivalent: "")
         pauseItem.target = self
         menu.addItem(pauseItem)

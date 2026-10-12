@@ -12,6 +12,8 @@ enum ItemKind: Hashable {
     case webSearch(query: String)
     case clipboard(entry: ClipboardEntry)
     case clipboardMode
+    case filesMode
+    case filesSearch(query: String)
 }
 
 enum SystemAction: String, Hashable {
@@ -207,6 +209,9 @@ func builtinCommands() -> [LauncherItem] {
         LauncherItem(title: "Clipboard History…", subtitle: "Search your copies • type “clip”", category: "Clipboard",
                      symbol: "clipboard", tint: .mint, keywords: "clipboard history copy paste clip",
                      kind: .clipboardMode),
+        LauncherItem(title: "Files…", subtitle: "Browse storage & files • type “files pdf” to search", category: "Files",
+                     symbol: "folder", tint: .blue, keywords: "files finder folders storage disk documents browse search",
+                     kind: .filesMode),
     ]
 }
 
@@ -269,6 +274,8 @@ func execute(_ item: LauncherItem) {
         NSPasteboard.general.setString(entry.text, forType: .string)
     case .clipboardMode:
         break // handled by LauncherModel.run (enters "clip " mode)
+    case .filesMode, .filesSearch:
+        break // handled by LauncherModel.run (opens the Files window)
     }
 }
 
@@ -345,6 +352,9 @@ final class LauncherModel: ObservableObject {
     let clipboard: ClipboardManager
     private var cancellables = Set<AnyCancellable>()
 
+    /// Set by the app delegate: opens the Files window (nil = dashboard).
+    var onOpenFiles: ((String?) -> Void)?
+
     init(clipboard: ClipboardManager = ClipboardManager()) {
         self.clipboard = clipboard
         allItems = builtinCommands() + scannedApps()
@@ -374,6 +384,33 @@ final class LauncherModel: ObservableObject {
                 keywords: "calc",
                 kind: .calculator(result: result)
             )]
+        }
+
+        // --- Files mode ("files" / "files <query>") ---
+        let lower = q.lowercased()
+        if lower == "files" || lower.hasPrefix("files ") {
+            let rest = String(q.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            var rows = [LauncherItem(
+                title: "Files…",
+                subtitle: "Browse storage & files across your Mac",
+                category: "Files",
+                symbol: "folder",
+                tint: .blue,
+                keywords: "files",
+                kind: .filesMode
+            )]
+            if !rest.isEmpty {
+                rows.append(LauncherItem(
+                    title: "Search files for “\(rest)”",
+                    subtitle: "Files • names, kinds and folders",
+                    category: "Files",
+                    symbol: "magnifyingglass",
+                    tint: .blue,
+                    keywords: "files",
+                    kind: .filesSearch(query: rest)
+                ))
+            }
+            return calcTop + rows
         }
 
         // --- Clipboard mode ("clip ...") ---
@@ -469,6 +506,18 @@ final class LauncherModel: ObservableObject {
         case .clipboard(let entry):
             markRecent(item)
             clipboard.copyAndPaste(entry)
+            query = ""
+            resetSelection()
+            return true
+        case .filesMode:
+            markRecent(item)
+            onOpenFiles?(nil)
+            query = ""
+            resetSelection()
+            return true
+        case .filesSearch(let fq):
+            markRecent(item)
+            onOpenFiles?(fq)
             query = ""
             resetSelection()
             return true
