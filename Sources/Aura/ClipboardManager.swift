@@ -274,9 +274,22 @@ final class ClipboardManager: ObservableObject {
     private let maxEntries = 100
 
     /// Disk-decode caches: rows render from these, never the filesystem.
-    private let fullImageCache = NSCache<NSString, NSImage>()
-    private let thumbCache = NSCache<NSString, NSImage>()
-    private let appIconCache = NSCache<NSString, NSImage>()
+    /// Hard limits — unbounded image caches are how clipboard apps balloon.
+    private let fullImageCache: NSCache<NSString, NSImage> = {
+        let c = NSCache<NSString, NSImage>()
+        c.countLimit = 40
+        return c
+    }()
+    private let thumbCache: NSCache<NSString, NSImage> = {
+        let c = NSCache<NSString, NSImage>()
+        c.countLimit = 600
+        return c
+    }()
+    private let appIconCache: NSCache<NSString, NSImage> = {
+        let c = NSCache<NSString, NSImage>()
+        c.countLimit = 120
+        return c
+    }()
 
     /// Bundle IDs we never record from (password managers etc.)
     private let ignoredBundleIDs: Set<String> = [
@@ -396,8 +409,9 @@ final class ClipboardManager: ObservableObject {
         let appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Unknown"
 
         // Images win when image data is present (screenshots, copied photos).
+        // Conversion happens off-main; poll() itself never blocks.
         if let img = pb.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage {
-            captureImage(img, sourceApp: appName)
+            captureImageAsync(img, sourceApp: appName)
             return
         }
 
@@ -407,12 +421,28 @@ final class ClipboardManager: ObservableObject {
         insertOrBump(text: text, kind: nil, sourceApp: appName, pinned: false)
     }
 
-    private func captureImage(_ img: NSImage, sourceApp: String) {
-        guard let tiff = img.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]),
-              png.count < 25_000_000 else { return }
-        let hash = djb2(png)
+    /// PNG conversion + disk write run off-main; only the insert touches state.
+    private func captureImageAsync(_ img: NSImage, sourceApp: String) {
+        guard let tiff = img.tiffRepresentation else { return }
+        let dir = imagesDir
+        Task {
+            let result = await Task.detached(priority: .utility) {
+                () -> (name: String, w: Int, h: Int, bytes: Int, hash: UInt64)? in
+                guard let rep = NSBitmapImageRep(data: tiff),
+                      let png = rep.representation(using: .png, properties: [:]),
+                      png.count < 25_000_000 else { return nil }
+                let name = "\(UUID().uuidString).png"
+                do {
+                    try png.write(to: dir.appendingPathComponent(name), options: .atomic)
+                } catch { return nil }
+                return (name, rep.pixelsWide, rep.pixelsHigh, png.count, djb2(png))
+            }.value
+            guard let r = result else { return }
+            self.insertImage(name: r.name, w: r.w, h: r.h, bytes: r.bytes, hash: r.hash, sourceApp: sourceApp)
+        }
+    }
+
+    private func insertImage(name: String, w: Int, h: Int, bytes: Int, hash: UInt64, sourceApp: String) {
         // Same image re-copied → bump copies, don't duplicate.
         if let i = entries.firstIndex(where: { $0.kind == .image && $0.imageHash == hash }) {
             entries[i].copies += 1
@@ -421,14 +451,10 @@ final class ClipboardManager: ObservableObject {
             save()
             return
         }
-        let name = "\(UUID().uuidString).png"
-        do {
-            try png.write(to: imagesDir.appendingPathComponent(name), options: .atomic)
-        } catch { return }
         entries.insert(ClipboardEntry(
             text: "", kind: .image, sourceApp: sourceApp,
-            imageFile: name, imageWidth: rep.pixelsWide, imageHeight: rep.pixelsHigh,
-            imageBytes: png.count, imageHash: hash
+            imageFile: name, imageWidth: w, imageHeight: h,
+            imageBytes: bytes, imageHash: hash
         ), at: 0)
         trim()
         save()

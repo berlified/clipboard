@@ -45,9 +45,11 @@ Needs **Accessibility** (macOS only shares other apps' selected text with it): l
 ```bash
 git clone https://github.com/berlified/clipboard.git
 cd clipboard
-swift run                        # dev (blocks; Ctrl+C to stop)
-swift build -c release && ./.build/release/Aura &   # background
+swift build -c release && ./.build/release/Aura &   # run this (optimized)
+swift run                                           # dev only (debug builds are 2-5x slower)
 ```
+
+> Run the **release** binary day-to-day: debug builds disable compiler optimizations and feel laggy. Full fresh file scan measured at ~12s on a 40k-file Mac (background, progressive); every open after that is instant off the on-disk index.
 
 Menu bar 📋 → Files… / Pause / Quit.
 

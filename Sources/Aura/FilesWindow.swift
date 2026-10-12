@@ -57,6 +57,8 @@ private struct FilesRootView: View {
     @ObservedObject var indexer: FilesIndexer
     @State private var selection: FilesSel = .home
     @State private var search: String = ""
+    /// Debounced filter text: heavy fuzzy matching runs at most ~7×/s while typing.
+    @State private var appliedQuery: String = ""
     @State private var sort: ListSort = .date
     @State private var selectedRow: Int = 0
 
@@ -76,8 +78,13 @@ private struct FilesRootView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .preferredColorScheme(.light)
         .onAppear { indexer.scan() }
-        .onChange(of: search) { _, _ in selectedRow = 0 }
+        .onChange(of: appliedQuery) { _, _ in selectedRow = 0 }
         .onChange(of: selection) { _, _ in selectedRow = 0 }
+        .task(id: search) {
+            // Debounce: restart the clock on every keystroke.
+            try? await Task.sleep(for: .milliseconds(150))
+            if !Task.isCancelled { appliedQuery = search }
+        }
     }
 
     // MARK: Sidebar
@@ -200,7 +207,12 @@ private struct FilesRootView: View {
                         TextField("", text: $search, prompt: Text("Search, or try \"pdfs from last week\"…").foregroundColor(.secondary))
                             .font(.system(size: 13)).textFieldStyle(.plain)
                             .frame(width: 250)
-                            .onSubmit { if !search.isEmpty { selection = .searchAll } }
+                            .onSubmit {
+                                if !search.isEmpty {
+                                    appliedQuery = search
+                                    selection = .searchAll
+                                }
+                            }
                         Text("⌘F").font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 6).padding(.vertical, 2)
@@ -356,7 +368,7 @@ private struct FilesRootView: View {
 
     private var listResults: [IndexedFile] {
         let scope = listScope
-        let q = search.trimmingCharacters(in: .whitespaces)
+        let q = appliedQuery.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else {
             switch sort {
             case .date: return scope.sorted { $0.modified > $1.modified }
@@ -407,7 +419,7 @@ private struct FilesRootView: View {
                                 }
                         }
                         if listResults.isEmpty {
-                            Text(search.isEmpty ? "Nothing here yet." : "No matches.")
+                            Text(appliedQuery.isEmpty ? "Nothing here yet." : "No matches.")
                                 .font(.system(size: 13)).foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity).padding(.vertical, 60)
                         }

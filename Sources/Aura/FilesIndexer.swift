@@ -136,6 +136,8 @@ func byteString(_ b: Int64) -> String {
 
 struct FileAnalysis: Sendable {
     var byKind: [FileKind: [IndexedFile]] = [:]
+    var counts: [FileKind: Int] = [:]
+    var bytesByKind: [FileKind: Int64] = [:]
     var recents: [IndexedFile] = []
     var large: [IndexedFile] = []
     var largeCount = 0
@@ -159,6 +161,10 @@ struct FileAnalysis: Sendable {
             byKind[k]?.sort { $0.modified > $1.modified }
         }
         a.byKind = byKind
+        for k in FileKind.allCases {
+            a.counts[k] = k == .app ? apps.count : byKind[k]?.count ?? 0
+            a.bytesByKind[k] = (k == .app ? apps : byKind[k] ?? []).reduce(0) { $0 + $1.size }
+        }
         a.recents = Array(all.sorted { $0.modified > $1.modified }.prefix(200))
         let large = files.filter { $0.size > 0 }.sorted { $0.size > $1.size }
         a.large = Array(large.prefix(200))
@@ -232,21 +238,22 @@ final class FilesIndexer: ObservableObject {
     /// the old freeze).
     @Published private(set) var analysis = FileAnalysis.empty
 
-    private let iconCache = NSCache<NSString, NSImage>()
+    private let iconCache: NSCache<NSString, NSImage> = {
+        let c = NSCache<NSString, NSImage>()
+        c.countLimit = 600
+        return c
+    }()
     private let maxFiles = 40_000
     private var indexURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("Aura/files-index.json", isDirectory: false)
     }
 
-    init() {
-        // Instant open: last index loads in milliseconds, refresh happens behind.
-        if let data = try? Data(contentsOf: indexURL),
-           let saved = try? JSONDecoder().decode(PersistedIndex.self, from: data) {
-            files = saved.files
-            apps = saved.apps
-            scannedCount = files.count + apps.count
-            analysis = FileAnalysis.compute(files: files, apps: apps)
+    init(loadPersisted: Bool = true) {
+        // Intentionally empty: 9.5MB JSON decode + analysis must never run
+        // on the main thread at launch. Owners call loadPersisted().
+        if loadPersisted {
+            Task { await self.loadPersisted() }
         }
     }
 
@@ -255,13 +262,36 @@ final class FilesIndexer: ObservableObject {
         var apps: [IndexedFile]
     }
 
+    /// Loads last scan off-main: decode + analytics both in background.
+    func loadPersisted() async {
+        let url = indexURL
+        let decoded: PersistedIndex? = await Task.detached(priority: .utility) {
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            return try? JSONDecoder().decode(PersistedIndex.self, from: data)
+        }.value
+        guard let saved = decoded, !scanning else { return }
+        files = saved.files
+        apps = saved.apps
+        scannedCount = files.count + apps.count
+        let snapshotFiles = files
+        let snapshotApps = apps
+        analysis = await Task.detached(priority: .utility) {
+            FileAnalysis.compute(files: snapshotFiles, apps: snapshotApps)
+        }.value
+    }
+
     private func persist() {
-        do {
-            try FileManager.default.createDirectory(at: indexURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let data = try JSONEncoder().encode(PersistedIndex(files: files, apps: apps))
-            try data.write(to: indexURL, options: .atomic)
-        } catch {
-            // Non-fatal; next open just rescans.
+        // Encode + write off-main: 40k objects must never block the UI.
+        let snapshot = PersistedIndex(files: files, apps: apps)
+        let url = indexURL
+        Task.detached(priority: .utility) {
+            do {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let data = try JSONEncoder().encode(snapshot)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                // Non-fatal; next open just rescans.
+            }
         }
     }
 
@@ -411,13 +441,11 @@ final class FilesIndexer: ObservableObject {
     }
 
     func count(for kind: FileKind) -> Int {
-        // Live counts stay fresh mid-scan; full lists come from analysis.
-        kind == .app ? apps.count : files.filter { $0.kind == kind }.count
+        analysis.counts[kind] ?? 0
     }
 
     func bytes(for kind: FileKind) -> Int64 {
-        let list = kind == .app ? apps : files.filter { $0.kind == kind }
-        return list.reduce(0) { $0 + $1.size }
+        analysis.bytesByKind[kind] ?? 0
     }
 
     func byKind(_ kind: FileKind) -> [IndexedFile] {

@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Headless test hook: scan the Mac and print JSON, then quit.
         if CommandLine.arguments.contains("--files-scan") {
-            let indexer = FilesIndexer()
+            let indexer = FilesIndexer(loadPersisted: false)
             Task { @MainActor in
                 await indexer.runScan()
                 let summary = indexer.scanSummary()
