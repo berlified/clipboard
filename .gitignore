@@ -5,3 +5,6 @@
 DerivedData/
 .DS_Store
 *.o
+
+# release artifacts (shipped via GitHub Releases)
+dist/
